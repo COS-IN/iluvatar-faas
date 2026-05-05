@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use iluvatar_controller_library::server::controller_comm::ControllerAPIFactory;
 use iluvatar_library::char_map::worker_char_map;
-use iluvatar_library::tokio_utils::build_tokio_runtime;
-use iluvatar_library::transaction::{TransactionId, STARTUP_TID};
+use iluvatar_library::tokio_utils::{build_tokio_runtime, sim_scheduler_tick, SimulationGranularity};
+use iluvatar_library::transaction::{TransactionId, SIMULATION_START_TID, STARTUP_TID};
 use iluvatar_library::{bail_error, logging::start_tracing, utils::wait_for_exit_signal};
 use iluvatar_rpc::rpc::iluvatar_worker_server::IluvatarWorkerServer;
 use iluvatar_rpc::rpc::RegisterWorkerRequest;
@@ -101,6 +101,17 @@ async fn run(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
         _ => info!(tid = tid, "Skipping controller registration"),
     };
 
+    if iluvatar_library::utils::is_simulation() {
+        let sim_tid = tid.clone();
+        tokio::spawn(async move {
+            info!(tid = sim_tid, "Starting simulation clock loop");
+            loop {
+                sim_scheduler_tick(1, SimulationGranularity::MS).await;
+                tokio::task::yield_now().await;
+            }
+        });
+    }
+
     wait_for_exit_signal(tid).await?;
     Ok(())
 }
@@ -119,8 +130,11 @@ async fn clean(server_config: WorkerConfig, tid: &TransactionId) -> Result<()> {
 
 fn main() -> Result<()> {
     iluvatar_library::utils::file::ensure_temp_dir()?;
-    let tid: &TransactionId = &STARTUP_TID;
     let cli = Args::parse();
+    let tid: &TransactionId = if cli.sim { &SIMULATION_START_TID } else { &STARTUP_TID };
+    if cli.sim {
+        iluvatar_library::utils::set_simulation(tid)?;
+    }
 
     match cli.command {
         Some(c) => match c {
