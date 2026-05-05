@@ -381,14 +381,41 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             fqdns = ?request.fqdns,
             "Handling est invoke time request"
         );
-
+	// Ignore the GPU for now
+	
         let queue_load = self.invoker.queue_len();
         let cpu_queue = queue_load.0.get(&Compute::CPU);
         let gpu_queue = queue_load.0.get(&Compute::GPU);
 
         let gpu_running = self.gpu.as_ref().map_or(0, |gpu| gpu.outstanding());
-        let cpu_running = self.invoker.running_funcs().saturating_sub(gpu_running);
-
+        let cpu_running = self.invoker.running_funcs();
+	// Find some registered function. 
+        let registration = request
+            .fqdns
+            .iter()
+            .find_map(|fqdn| self.reg.get_registration(fqdn));
+        // let cpu_estimated_wait_time_sec = registration.as_ref().map_or_else(
+        //     || {
+        //         debug!(
+        //             tid = request.transaction_id,
+        //             fqdns = ?request.fqdns,
+        //             "No registered FQDN found in est_invoke_time request; defaulting CPU estimate to 0.0"
+        //         );
+        //         0.0
+        //     },
+        //     |registration| {
+        //         self.cmap.model_based_t_cpu(&registration.fqdn).unwrap_or_else(|| {
+        //             self.invoker
+        //                 .est_e2e_time(registration, &request.transaction_id)
+        //         })
+        //     },
+        // );
+	let cpu_estimated_wait_time_sec = match registration {
+	    Some(r) =>  self.invoker.est_e2e_time(&r, &request.transaction_id),
+	    _ => 0.0 // Should fix this to return the waiting time even without the invok. Maybe fix should be the invoker est_e2e_time method itself? 
+	};
+	   
+	// Output to be returned 
         let mut est_times = HashMap::new();
         est_times.insert("cpu_running_functions".to_string(), cpu_running as f64);
         est_times.insert("gpu_running_functions".to_string(), gpu_running as f64);
@@ -400,14 +427,10 @@ impl IluvatarWorker for IluvatarWorkerImpl {
             "gpu_waiting_functions".to_string(),
             gpu_queue.map_or(0.0, |queue| queue.len as f64),
         );
-
-	let first_func = request.fqdns.first(); 
-	let r = self.reg.get_registration(first_func.expect("")).unwrap();
-	let t = self.invoker.est_e2e_time(&r, &request.transaction_id);
-	
         est_times.insert(
             "cpu_estimated_wait_time_sec".to_string(),
-            t);
+            cpu_estimated_wait_time_sec,
+        );
   
         est_times.insert(
             "gpu_estimated_wait_time_sec".to_string(),
@@ -415,4 +438,5 @@ impl IluvatarWorker for IluvatarWorkerImpl {
         );
         Ok(Response::new(EstInvokeResponse { est_times }))
     }
+
 }

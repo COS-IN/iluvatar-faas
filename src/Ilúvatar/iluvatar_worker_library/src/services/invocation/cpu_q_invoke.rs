@@ -399,7 +399,11 @@ impl DeviceQueue for CpuQueueingInvoker {
             tput: self.device_tput.get_tput(),
         }
     }
+
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
+	// XXX:  This doesnt take into account multicore functions
+	// Nor slowdown/interference
+	// Is avail cores the same as the concurrency limit? 
         let qt = if self.queue_len() <= self.cpu.available_cores() {
             // If Q is smaller than num of avail CPUs, we don't really have queuing,
             // just a race from item being added recently and not popped
