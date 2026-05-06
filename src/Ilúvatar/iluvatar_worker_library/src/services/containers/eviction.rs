@@ -25,6 +25,7 @@ impl Default for EvictionPolicy {
     }
 }
 
+/// Main entry point for evicting using different policies. 
 /// Return two lists: ordered list of containers for potential future eviction, and another for immediate eviction
 pub fn order_pool_eviction(
     _ctr_mrg: &ContainerManager,
@@ -61,6 +62,7 @@ fn ttl_eviction(list: Subpool, timeout: Duration) -> (Subpool, Subpool) {
     (sort.into_iter().map(|c| c.1).collect(), evict)
 }
 
+
 fn greedy_dual_eviction(mgr: &ContainerManager, list: Subpool) -> (Subpool, Subpool) {
     let mut insts: Vec<(f64, Container)> = list
         .into_iter()
@@ -71,6 +73,7 @@ fn greedy_dual_eviction(mgr: &ContainerManager, list: Subpool) -> (Subpool, Subp
                 .map(|r| *r)
                 .unwrap_or_else(|| {
                     // Fallback calculation if priority is missing
+		    // Shouldnt this be just the clock if the prior is missing? 
                     let clock = *mgr.greedy_dual_clock.read();
                     let fqdn = c.fqdn();
                     let freq = mgr.get_freq(fqdn) as f64;

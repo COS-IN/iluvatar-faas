@@ -130,7 +130,7 @@ impl ContainerManager {
             let reclaim = self.resources.memory_buffer_mb - self.free_memory();
             if reclaim > 0 {
                 info!(tid = tid, amount = reclaim, "Trying to reclaim memory for monitor pool");
-                match self.reclaim_memory(reclaim, tid).await {
+                match self.reclaim_memory_hard(reclaim, tid).await {
                     Ok(_) => {},
                     Err(e) => error!(tid=tid, error=%e, "Error while trying to remove containers"),
                 };
@@ -579,11 +579,11 @@ impl ContainerManager {
                         fqdn = %reg.fqdn,
                         "Insufficient memory to launch container, attempting reclamation"
                     );
-                    self.reclaim_memory(mem.needed, tid).await?;
+                    self.reclaim_memory_hard(mem.needed, tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
                     debug!(tid = tid, fqdn = %reg.fqdn, "Insufficient GPU resources, attempting to reclaim a GPU");
-                    self.reclaim_gpu(tid).await?;
+                    self.reclaim_hardest(tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else {
                     Err(cause)
@@ -724,9 +724,8 @@ impl ContainerManager {
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
-    /// Reclaim a single GPU from a container via eviction
-    /// If any are free to be removed
-    async fn reclaim_gpu(&self, tid: &TransactionId) -> Result<()> {
+    /// Evict lowest priority container. Called when all else failed. 
+    async fn reclaim_hardest(&self, tid: &TransactionId) -> Result<()> {
         let mut chosen = None;
         for cont in self.prioritized_gpu_list.read().iter() {
             if cont.is_healthy() && self.gpu_containers.remove_container(cont, tid).is_some() {
@@ -748,7 +747,7 @@ impl ContainerManager {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, amount_mb), fields(tid=tid)))]
     /// Reclaim at least the specified amount of memory by evicting containers
     /// Not guaranteed to do so, as all containers could be busy
-    async fn reclaim_memory(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
+    async fn reclaim_memory_hard(&self, amount_mb: MemSizeMb, tid: &TransactionId) -> Result<()> {
         if amount_mb <= 0 {
             bail!("Cannot reclaim '{}' amount of memory", amount_mb);
         }
@@ -789,6 +788,7 @@ impl ContainerManager {
         debug!(tid=tid, num_containers=%ordered.len(), "Computing GPU eviction priorities");
         let (ordered, evict) = order_pool_eviction(self, &self.resources.eviction, tid, ordered);
         *self.prioritized_gpu_list.write() = ordered;
+	// Maybe log the length of the list here 
         evict
     }
 
@@ -838,8 +838,9 @@ impl ContainerManager {
         Ok(ret)
     }
 
-    /// Go through idle containers in prioritized order to make enough room on GPU.
-    pub async fn make_room_on_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: InternalGpuId) {
+    /// Use memory offload to CPU. Go through idle containers in prioritized order.
+    /// Called by MQFQ to free memory for container. 
+    pub async fn soft_evict_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: InternalGpuId) {
         // match specific GPU
         let ctrs = self
             .gpu_containers
@@ -872,7 +873,9 @@ impl ContainerManager {
                 let t = tid.clone();
                 // actual removal is async (async in the container anyway, why wait)
                 tokio::spawn(async move {
-                    if let Err(e) = ctr.move_to_device(&t).await {
+		    //XXX: This seems inverted! mem should be moved 
+		    // Completely removing the container should be an option atleast. 
+                    if let Err(e) = ctr.move_from_device(&t).await {
                         error!(tid=%t, error=%e, container_id=ctr.container_id(), "Error moving memory to device");
                         ctr.mark_unhealthy();
                     } else {
@@ -895,7 +898,7 @@ impl ContainerManager {
         debug!(tid = tid, total_reclaimed = total_reclaimed, "reclaimed gpu memory");
     }
 
-    /// Tell all (idle) GPU containers of the given FQDN to move memory off of the device
+    /// Move containers to GPU memory. Called when flow transitions to active. 
     pub async fn try_move_on_device(&self, fqdn: String, tid: TransactionId) {
         debug!(tid=tid, fqdn=%fqdn, "trying to move on device");
         let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);
@@ -906,6 +909,7 @@ impl ContainerManager {
                 if let Some(gpu) = c.device_resource().as_ref() {
                     if let Some(gr) = &self.gpu_resources {
                         let free = gr.get_free_mem(gpu);
+			// XXX: When moving TO GPU, shouldnt free > mem?  
                         if free <= mem {
                             do_move = true;
                             c.set_state(ContainerState::Warm);
@@ -923,6 +927,7 @@ impl ContainerManager {
     }
 
     /// Tell all (idle) GPU containers of the given FQDN to move memory off of the device
+    /// Called when flow transitions away from active to any other. 
     pub async fn move_off_device(&self, fqdn: String, tid: TransactionId) {
         debug!(tid=tid, fqdn=%fqdn, "moving off device");
         let ctrs = self.gpu_containers.iter_idle_fqdn(&fqdn);

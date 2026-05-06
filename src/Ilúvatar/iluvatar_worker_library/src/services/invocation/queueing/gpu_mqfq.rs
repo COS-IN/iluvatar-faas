@@ -577,7 +577,7 @@ impl MQFQ {
         while let Some((next_item, gpu_token)) = self.dispatch(tid) {
             debug!(tid = next_item.invoke.tid, "Sending item for dispatch");
             // This async function the only place which decrements running set and resources avail. Implicit assumption that it won't be concurrently invoked.
-            if let Some(cpu_token) = self.acquire_resources_to_run(&next_item.invoke.registration, tid).await {
+            if let Some(cpu_token) = self.acquire_cpu_resources_to_run(&next_item.invoke.registration, tid).await {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     svc.invocation_worker_thread(next_item, cpu_token, gpu_token).await;
@@ -656,8 +656,9 @@ impl MQFQ {
         item.mark_error(&cause);
     }
 
-    /// call async to invoke code
-    async fn free_memory_for_reg(
+    /// call async to invoke code.
+    /// Tries to soft-reclaim memory required for this function. No buffer. 
+    async fn soft_evict_for_reg(
         &self,
         reg: Arc<RegisteredFunction>,
         tid: TransactionId,
@@ -674,7 +675,7 @@ impl MQFQ {
         if diff < 0 {
             let t = tid.clone();
             let ctr_man = self.cont_manager.clone();
-            tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, gpu_id).await });
+            tokio::spawn(async move { ctr_man.soft_evict_gpu(t, -diff, gpu_id).await });
         }
         memory
     }
@@ -694,12 +695,13 @@ impl MQFQ {
             }
             if let Some(g) = ctr.device_resource().as_ref() {
                 let free = self.gpu.get_free_mem(g);
+		//XXX: This might be too agressive/optimistic packing. 
                 let diff = free - memory;
                 if diff < 0 {
                     let t = tid.clone();
                     let ctr_man = self.cont_manager.clone();
                     let id = g.gpu_hardware_id;
-                    tokio::spawn(async move { ctr_man.make_room_on_gpu(t, -diff, id).await });
+                    tokio::spawn(async move { ctr_man.soft_evict_gpu(t, -diff, id).await });
                 }
             }
             if let Some(g) = ctr.device_resource().as_ref() {
@@ -743,7 +745,7 @@ impl MQFQ {
                     let s = self.clone();
                     let tid = invoke.tid.clone();
                     h = Some(tokio::spawn(async move {
-                        s.free_memory_for_reg(r, tid, gpu_token.gpu_id).await
+                        s.soft_evict_for_reg(r, tid, gpu_token.gpu_id).await
                     }));
                 }
                 let ctr = f.await?;
@@ -762,6 +764,7 @@ impl MQFQ {
                     let s = self.clone();
                     let tid = invoke.tid.clone();
                     let ctr = n.container.clone();
+		    //XXX: This is only an offload which is not guaranteed. Happening too late in the invoke path? 
                     tokio::spawn(async move { s.free_memory_for_ctr(ctr, tid).await });
                 }
                 n
@@ -808,9 +811,9 @@ impl MQFQ {
         }
     }
 
-    /// Blocks until an owned permit can be acquired to run a function.
+    /// Blocks until an owned permit can be acquired to run a function. Checks CPU cores?? 
     /// A return value of [None] means the resources failed to be acquired.
-    async fn acquire_resources_to_run(
+    async fn acquire_cpu_resources_to_run(
         &self,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
@@ -1192,8 +1195,8 @@ impl MQFQ {
         }
     }
 
-    // Invoked functions automatically increase the count, conversely for finished functions
-    fn get_token(&self, tid: &TransactionId) -> Option<GpuToken> {
+    /// Tokens used for concurrency control. But we also should check for memory and eviction feasibility (if nothing is idle). 
+    fn gpu_resources_available(&self, tid: &TransactionId) -> Option<GpuToken> {
         self.gpu.try_acquire_resource(None, tid).ok()
     }
 
@@ -1206,7 +1209,7 @@ impl MQFQ {
             return None;
         }
         let mut cnt = 0;
-        match self.get_token(tid) {
+        match self.gpu_resources_available(tid) {
             Some(token) => {
                 loop {
                     // loop because some flow is not empty

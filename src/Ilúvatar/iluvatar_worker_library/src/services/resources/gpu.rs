@@ -724,6 +724,7 @@ impl GpuResourceTracker {
     /// Return a permit access to run on the given GPU
     /// If [gpu] is [None], then this will return a token for the least loaded GPU
     /// Returns an error if none are available for execution
+    /// Called by mqfq get_token with None gpu 
     pub fn try_acquire_resource(
         self: &Arc<Self>,
         gpu: Option<&GPU>,
@@ -884,10 +885,13 @@ impl GpuResourceTracker {
         self.gpu_metadata.iter().map(|g| g.1.max_running).sum::<u32>()
     }
 
+
+    
+    
     /// Acquire a GPU so it can be attached to a container.
     /// Returns a pointer to the least-loaded GPU
     /// [None] means no GPU is available.
-    pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<GPU> {
+    pub fn acquire_gpu_least_loaded(self: &Arc<Self>, tid: &TransactionId) -> Option<GPU> {
         let mut best_idx = 0;
         let mut available = 0;
         for item in self.gpus.iter() {
@@ -897,7 +901,8 @@ impl GpuResourceTracker {
                 best_idx = *item.key();
             }
         }
-
+	// XX: This intermittently fails sometimes on the A100. Why?
+	
         let gpu = self.gpus.get_mut(&best_idx)?.pop();
         if let Some(g) = &gpu {
             debug!(
@@ -910,6 +915,27 @@ impl GpuResourceTracker {
         gpu
     }
 
+    /// Acquire a GPU so it can be attached to a container.
+    /// Simpler faster implementation 
+    /// [None] means no GPU is available.
+    pub fn acquire_gpu(self: &Arc<Self>, tid: &TransactionId) -> Option<GPU> {
+        if self.gpus.len() == 1 {
+            let gpu_hardware_id = self.gpus.iter().next().map(|entry| *entry.key())?;
+            let gpu = self.gpus.get_mut(&gpu_hardware_id)?.pop();
+            if let Some(g) = &gpu {
+                debug!(
+                    tid = tid,
+                    gpu_uuid = g.gpu_uuid,
+                    struct_id = g.struct_id,
+                    hardware_id = g.gpu_hardware_id,
+                    "GPU allocating"
+                );
+             }
+            return gpu;
+        }
+	self.acquire_gpu_least_loaded(&tid)
+    }
+    
     /// Return a GPU that has been removed from a container
     pub fn return_gpu(&self, gpu: GPU, tid: &TransactionId) {
         debug!(
