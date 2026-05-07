@@ -42,7 +42,7 @@ pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
     fn update_2(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64) {}
     fn update_3(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64) {}
     fn update_4(&self, _fqdn: &str, _k1: T, _v1: f64, _k2: T, _v2: f64, _k3: T, _v3: f64, _k4: T, _v4: f64) {}
-    fn update_5(
+    fn update_fn_done(
         &self,
         _fqdn: &str,
         _k1: T,
@@ -55,6 +55,7 @@ pub trait CharMap<T: num_traits::AsPrimitive<usize> + Max> {
         _v4: f64,
         _k5: T,
         _v5: f64,
+	_compute: Compute
     ) {
     }
 
@@ -166,6 +167,8 @@ pub enum Chars {
     CpuInvokeCount,
     /// Number of gpu executions
     GpuInvokeCount,
+    /// Latest per-function MQFQ flow-queue length on GPU
+    GpuFlowQueueLen,
     /// TotalCount
     TotalInvokeCount,
 
@@ -343,7 +346,9 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
             },
         };
     }
-    fn update_5(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64, k3: T, v3: f64, k4: T, v4: f64, k5: T, v5: f64) {
+    
+    /// Main recording point when function is done. Called only once by invoke_on_container_2 
+    fn update_fn_done(&self, fqdn: &str, k1: T, v1: f64, k2: T, v2: f64, k3: T, v3: f64, k4: T, v4: f64, k5: T, v5: f64, compute:Compute) {
         match self.data.get_mut(fqdn) {
             None => {
                 let mut data = vec![f64::NAN; S * (Value::SIZE)].into_boxed_slice();
@@ -363,6 +368,18 @@ impl<T: Max + num_traits::AsPrimitive<usize>, const S: usize> CharMap<T> for Cha
                 update_data(data, k5.as_() * (Value::SIZE), v5);
             },
         };
+	let current_total = self.get_latest(fqdn, Chars::TotalInvokeCount);
+	// XXX: This makes it non idempotent. could happen outside?! 
+        self.update(fqdn, Chars::TotalInvokeCount, current_total + 1.0);
+	
+        if compute == Compute::CPU {
+            let current = self.get_latest(fqdn, Chars::CpuInvokeCount);
+            self.update(fqdn, Chars::CpuInvokeCount, current + 1.0);
+        } else if compute == Compute::GPU {
+            let current = self.get_latest(fqdn, Chars::GpuInvokeCount);
+            self.update(fqdn, Chars::GpuInvokeCount, current + 1.0);
+        }
+
     }
 
     fn get(&self, fqdn: &str, key: T, value: Value) -> f64 {

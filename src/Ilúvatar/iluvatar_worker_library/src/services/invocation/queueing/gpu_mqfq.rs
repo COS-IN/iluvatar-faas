@@ -829,6 +829,7 @@ impl MQFQ {
 
     /// Get or create FlowQ
     fn add_invok_to_flow(&self, item: Arc<EnqueuedInvocation>) {
+        let fqdn = item.registration.fqdn.clone();
         let virtual_time = self.mindicator.min();
         match self.mqfq_set.get_mut(&item.registration.fqdn) {
             Some(mut fq) => {
@@ -867,6 +868,10 @@ impl MQFQ {
                 self.mqfq_set.insert(fname, qguard);
             },
         };
+        if let Some(q) = self.mqfq_set.get(&fqdn) {
+            self.cmap
+                .update(&fqdn, Chars::GpuFlowQueueLen, q.queue.len() as f64);
+        }
         self.signal.notify_waiters();
     }
 
@@ -1217,6 +1222,11 @@ impl MQFQ {
                     let virtual_time = self.mindicator.min();
                     if let Some(mut chosen_q) = self.next_flow(tid, &token, virtual_time) {
                         if let Some(i) = chosen_q.pop_flow() {
+                            self.cmap.update(
+                                &chosen_q.fqdn,
+                                Chars::GpuFlowQueueLen,
+                                chosen_q.queue.len() as f64,
+                            );
                             // let updated_vitual_time: f64 = f64::max(vitual_time, i.start_time_virt); // dont want it to go backwards
                             // *self.vitual_time.write() = updated_vitual_time;
                             // chosen_q.update_dispatched(updated_vitual_time);

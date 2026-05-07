@@ -246,7 +246,7 @@ async fn invoke_on_container_2(
     let now = clock.now();
     let e2etime = (now - queue_insert_time).as_seconds_f64();
     let err = e2etime - est_completion_time;
-    cmap.update_5(
+    cmap.update_fn_done(
         &reg.fqdn,
         state_char,
         time,
@@ -258,6 +258,7 @@ async fn invoke_on_container_2(
         err,
         Chars::GpuMemoryUsage,
         data.gpu_allocation_mb as f64,
+	compute
     );
     device_tput.add_tput(time);
     if compute == Compute::GPU {

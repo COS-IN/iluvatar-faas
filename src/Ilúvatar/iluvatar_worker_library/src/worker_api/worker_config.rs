@@ -67,6 +67,10 @@ pub struct ContainerResourceConfig {
     /// Supported ones are [here](https://github.com/containerd/containerd/tree/main/docs/snapshotters)
     ///   WARNING: using 'overlayfs' can cause race conditions on process startup inside a container before all files are available
     pub snapshotter: String,
+    /// Weight for historical invoke count in GreedyDual frequency computation.
+    /// For GPU containers, (1 - this) weight is applied to MQFQ future-invocation count.
+    #[serde(alias = "GD_freq_decay")]
+    pub gd_freq_decay: Option<f64>,
     /// The max number of containers allowed to be created concurrently
     ///   Calls to containerd can become extremely delayed if too many happen at once, ~10
     ///   If 0 then the concurrency is unlimited

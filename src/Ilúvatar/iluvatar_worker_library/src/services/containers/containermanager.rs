@@ -64,6 +64,7 @@ pub struct ContainerManager {
     pub greedy_dual_clock: RwLock<f64>,
     pub greedy_dual_costs: DashMap<String, f64>,
     pub greedy_dual_priorities: DashMap<String, f64>,
+    gd_freq_decay: f64,
 }
 
 impl ContainerManager {
@@ -89,6 +90,7 @@ impl ContainerManager {
             pri_notif.clone(),
             Self::recompute_eviction_priorities,
         );
+        let gd_freq_decay = resources.gd_freq_decay.unwrap_or(0.5);
         let cm = Arc::new(ContainerManager {
             resources,
             cont_isolations,
@@ -108,6 +110,7 @@ impl ContainerManager {
             greedy_dual_clock: RwLock::new(0.0),
             greedy_dual_costs: DashMap::new(),
             greedy_dual_priorities: DashMap::new(),
+            gd_freq_decay,
         });
         tx.send(cm.clone())?;
         health_tx.send(cm.clone())?;
@@ -677,26 +680,24 @@ impl ContainerManager {
         let fqdn = container.fqdn();
         let compute = container.compute_type();
 
-        // Update invocation counts in charmap
-        let current_total = self.cmap.get_latest(fqdn, Chars::TotalInvokeCount);
-        self.cmap.update(fqdn, Chars::TotalInvokeCount, current_total + 1.0);
-
-        if compute == Compute::CPU {
-            let current = self.cmap.get_latest(fqdn, Chars::CpuInvokeCount);
-            self.cmap.update(fqdn, Chars::CpuInvokeCount, current + 1.0);
-        } else if compute == Compute::GPU {
-            let current = self.cmap.get_latest(fqdn, Chars::GpuInvokeCount);
-            self.cmap.update(fqdn, Chars::GpuInvokeCount, current + 1.0);
-        }
-
-        // Use GpuInvokeCount as frequency for GreedyDual
-        let freq = self.cmap.get_latest(fqdn, Chars::GpuInvokeCount);
-
         let cost = self.get_cost(fqdn);
         let size = container.get_curr_mem_usage() as f64;
         let size = if size <= 0.0 { 1.0 } else { size };
         let clock = *self.greedy_dual_clock.read();
 
+        // Frequency blends cumulative history and known near-future demand.
+        // For GPU flows, MQFQ publishes per-flow queue length as future invokes.
+        let future_invoks = if compute == Compute::GPU {
+            self.cmap.get_latest(fqdn, Chars::GpuFlowQueueLen)
+        } else {
+            0.0
+        };
+        let cum_freq = match compute {
+            Compute::CPU => self.cmap.get_latest(fqdn, Chars::CpuInvokeCount),
+            _ => self.cmap.get_latest(fqdn, Chars::GpuInvokeCount),
+        };
+        let alpha = self.gd_freq_decay;
+        let freq = alpha * cum_freq + (1.0 - alpha) * future_invoks;
         let priority = clock + (freq * cost) / size;
         self.greedy_dual_priorities.insert(container.container_id().clone(), priority);
         debug!(container_id=%container.container_id(), fqdn=%fqdn, freq=freq, cost=cost, priority=priority, clock=clock, "Updated GreedyDual priority");
