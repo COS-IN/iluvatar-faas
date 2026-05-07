@@ -77,7 +77,7 @@ pub struct ContainerResourceConfig {
     pub docker_config: Option<DockerConfig>,
     /// Settings for the CPU compute resources the worker can use
     pub cpu_resource: Arc<CPUResourceConfig>,
-    /// Settings for the CPU compute resources the worker can use
+    /// Settings for the GPU compute resources the worker can use
     pub gpu_resource: Option<Arc<GPUResourceConfig>>,
 }
 #[derive(Debug, Serialize, Deserialize, Default)]

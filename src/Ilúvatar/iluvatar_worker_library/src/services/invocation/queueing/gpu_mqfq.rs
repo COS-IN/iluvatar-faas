@@ -670,13 +670,12 @@ impl MQFQ {
             // TODO: better number?
             memory = 1024 * 3;
         }
-        let free = self.gpu.get_free_mem_by_id(gpu_id);
-        let diff = free - memory;
-        if diff < 0 {
-            let t = tid.clone();
-            let ctr_man = self.cont_manager.clone();
-            tokio::spawn(async move { ctr_man.soft_evict_gpu(t, -diff, gpu_id).await });
-        }
+
+	let t = tid.clone();
+	let cmgr = self.cont_manager.clone(); 
+        tokio::spawn(async move { cmgr.
+				  soft_evict_gpu(t, memory, gpu_id).await });
+        
         memory
     }
 
@@ -693,18 +692,13 @@ impl MQFQ {
                 // TODO: better number?
                 memory = 1024 * 3;
             }
+	    let t = tid.clone();
+	    let cmgr = self.cont_manager.clone(); 
             if let Some(g) = ctr.device_resource().as_ref() {
-                let free = self.gpu.get_free_mem(g);
-		//XXX: This might be too agressive/optimistic packing. 
-                let diff = free - memory;
-                if diff < 0 {
-                    let t = tid.clone();
-                    let ctr_man = self.cont_manager.clone();
-                    let id = g.gpu_hardware_id;
-                    tokio::spawn(async move { ctr_man.soft_evict_gpu(t, -diff, id).await });
-                }
-            }
-            if let Some(g) = ctr.device_resource().as_ref() {
+		let id = g.gpu_hardware_id;
+                tokio::spawn(async move { cmgr.
+					  soft_evict_gpu(t, memory, id).await });
+		// Optimistic ... 
                 ctr.set_device_memory(memory);
                 self.gpu.update_mem_usage(g, memory);
             }
@@ -1197,7 +1191,13 @@ impl MQFQ {
 
     /// Tokens used for concurrency control. But we also should check for memory and eviction feasibility (if nothing is idle). 
     fn gpu_resources_available(&self, tid: &TransactionId) -> Option<GpuToken> {
-        self.gpu.try_acquire_resource(None, tid).ok()
+	// need to check for tokens, and then
+	if self.cont_manager.mem_avail_for_new_ctr() {
+            return self.gpu.try_acquire_resource(None, tid).ok()
+	}
+	else {
+	    return None
+	}
     }
 
     /// Main

@@ -122,6 +122,25 @@ impl ContainerManager {
         tokio::spawn(async move { self.try_evict_idle_containers(tid, evict).await });
     }
 
+    /// Memory availability above waterline. If not, atleast idle available to evict?
+    pub fn mem_avail_for_new_ctr(self: &Arc<Self>) -> bool {
+	// XXX: This is global cpu+gpu free mem!?! aargh.
+	// why is getting the gpu free memory so hard!!
+	// Also will need the GPU id etc ughhh
+	
+	let slack = self.total_gpu_free_mem() - self.resources.memory_buffer_mb ;
+	// positive slack needed 
+	if slack < 0 {
+	    // We should be able to reclaim some, ensure no
+	    let idle_conts = self.gpu_containers.iter_idle();
+	    if idle_conts.len() == 0 {
+		return false
+	    }
+	    return true 
+	}
+	return true 
+    }
+    
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
     async fn monitor_pool(self: &Arc<Self>, tid: &TransactionId) -> Result<ContainerMgrStat> {
         self.update_memory_usages(tid).await;
@@ -187,6 +206,20 @@ impl ContainerManager {
     }
     pub fn total_memory(&self) -> MemSizeMb {
         self.resources.memory_mb
+    }
+    /// Total tracked free GPU memory across all physical GPUs, in MB.
+    /// Returns 0 when GPU resources are not configured.
+    pub fn total_gpu_free_mem(&self) -> MemSizeMb {
+        match &self.gpu_resources {
+            Some(gr) => {
+                let mut total: MemSizeMb = 0;
+                for gpu_id in 0..gr.physical_gpus() {
+                    total += gr.get_free_mem_by_id(gpu_id);
+                }
+                total
+            },
+            None => 0,
+        }
     }
     pub fn num_containers(&self) -> u32 {
         self.cpu_containers.len() + self.gpu_containers.len()
@@ -740,6 +773,7 @@ impl ContainerManager {
                 self.purge_container(c.clone(), tid).await?
             },
             None => warn!(tid = tid, "tried to evict a container for a GPU, but was unable"),
+	    // XXX: Should add the retry-path here. 
         };
         Ok(())
     }
@@ -839,8 +873,16 @@ impl ContainerManager {
     }
 
     /// Use memory offload to CPU. Go through idle containers in prioritized order.
-    /// Called by MQFQ to free memory for container. 
+    /// Called by MQFQ to free memory for container.
+    /// A new container of memsize will be launched .. 
     pub async fn soft_evict_gpu(&self, tid: TransactionId, amt: MemSizeMb, device: InternalGpuId) {
+
+	let buffer = self.total_gpu_free_mem() - self.resources.memory_buffer_mb ;
+	let target = amt - buffer ;
+	if target < 0 {
+	    return
+	}
+	
         // match specific GPU
         let ctrs = self
             .gpu_containers
@@ -856,7 +898,7 @@ impl ContainerManager {
         let (ordered, mut evict) = order_pool_eviction(self, &self.resources.eviction, &tid, ctrs);
         // those marked for "eviction" aren't deleted here, but we prioritize them for removal from GPU
         evict.extend(ordered);
-        debug!(tid = tid, amount = amt, num_ctrs = evict.len(), "making room on GPU");
+        debug!(tid = tid, amount = target, num_ctrs = evict.len(), "making room on GPU");
         let mut total_reclaimed = 0;
         for c in evict {
             let (memory, present) = c.device_memory();
@@ -889,8 +931,8 @@ impl ContainerManager {
                     }
                 }
                 total_reclaimed += memory;
-                debug!(tid = tid, amount = amt, "still making room on GPU");
-                if amt <= total_reclaimed {
+                debug!(tid = tid, amount = target, "still making room on GPU");
+                if target <= total_reclaimed {
                     break;
                 }
             }
@@ -910,7 +952,7 @@ impl ContainerManager {
                     if let Some(gr) = &self.gpu_resources {
                         let free = gr.get_free_mem(gpu);
 			// XXX: When moving TO GPU, shouldnt free > mem?  
-                        if free <= mem {
+                        if free > mem {
                             do_move = true;
                             c.set_state(ContainerState::Warm);
                             gr.update_mem_usage(gpu, mem);
