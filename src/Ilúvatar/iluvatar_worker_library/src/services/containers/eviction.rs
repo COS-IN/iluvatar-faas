@@ -75,12 +75,7 @@ fn greedy_dual_eviction(mgr: &ContainerManager, list: Subpool) -> (Subpool, Subp
                     // Fallback calculation if priority is missing
 		    // Shouldnt this be just the clock if the prior is missing? 
                     let clock = *mgr.greedy_dual_clock.read();
-                    let fqdn = c.fqdn();
-                    let freq = mgr.get_freq(fqdn) as f64;
-                    let cost = mgr.get_cost(fqdn);
-                    let size = c.get_curr_mem_usage() as f64;
-                    let size = if size <= 0.0 { 1.0 } else { size };
-                    clock + (freq * cost) / size
+                    clock 
                 });
             (priority, c)
         })
