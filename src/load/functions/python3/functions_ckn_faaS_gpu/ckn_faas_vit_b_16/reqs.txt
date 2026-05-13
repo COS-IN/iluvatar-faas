@@ -1,0 +1,5 @@
+numpy==2.1.2
+pillow==11.0.0
+tqdm==4.67.1
+flask==3.0.3
+gunicorn==23.0.0

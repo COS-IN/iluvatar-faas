@@ -87,7 +87,14 @@ def append_metadata(user_ret, start, end, was_cold, success=True):
   if success:
     ret["user_result"] = json.dumps(user_ret)
   else:
-    ret["user_error"] = json.dumps(user_ret)
+    if isinstance(user_ret, Exception):
+      import traceback
+      ret["user_error"] = json.dumps({
+        "error": str(user_ret),
+        "traceback": traceback.format_exc()
+      })
+    else:
+      ret["user_error"] = json.dumps(user_ret)
   return jsonify(ret)
 
 @app.route('/invoke', methods=["POST"])

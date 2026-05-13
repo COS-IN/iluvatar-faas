@@ -7,10 +7,10 @@ import multiprocessing as mp
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument(
-    "--repo", help="Repository the image will be in", required=False, default="alfuerst"
+    "--repo", help="Repository the image will be in", required=False, default="iluvatar-faas"
 )
 argparser.add_argument(
-    "--hub", help="Hub to push docker image too", required=False, default="docker.io"
+    "--hub", help="Hub to push docker image too", required=False, default="registry.docker.iu.edu"
 )
 argparser.add_argument(
     "--version", help="Version to tag images with.", required=False, default="latest"
@@ -22,15 +22,33 @@ args = argparser.parse_args()
 
 
 def image_name(func_name, server):
-    return f"{args.hub}/{args.repo}/{func_name}-iluvatar-gpu-{server}:{args.version}"
+    parts = []
+    if args.hub:
+        parts.append(args.hub)
+    if args.repo:
+        parts.append(args.repo)
+    parts.append(f"{func_name}-iluvatar-gpu-{server}:{args.version}")
+    return "/".join(parts)
 
 
 def base_image_name(func_name):
-    return f"{args.hub}/{args.repo}/{func_name}:{args.version}"
+    parts = []
+    if args.hub:
+        parts.append(args.hub)
+    if args.repo:
+        parts.append(args.repo)
+    parts.append(f"{func_name}:{args.version}")
+    return "/".join(parts)
 
 
 def action_base():
-    return f"{args.hub}/{args.repo}/iluvatar-action-gpu-base"
+    parts = []
+    if args.hub:
+        parts.append(args.hub)
+    if args.repo:
+        parts.append(args.repo)
+    parts.append("iluvatar-action-gpu-base")
+    return "/".join(parts)
 
 
 hooks_dir = "./driver-hooks"

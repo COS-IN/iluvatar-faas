@@ -38,7 +38,7 @@ RUN apt-get update -qq && apt-get upgrade -y && DEBIAN_FRONTEND=noninteractive a
 
 WORKDIR /build/ffmpeg
 RUN git clone https://git.ffmpeg.org/ffmpeg.git . && \
-  ./configure --prefix=/build --enable-nonfree --enable-cuda-nvcc --enable-ffnvcodec --enable-nvenc --enable-libnpp \
+  ./configure --prefix=/build --enable-nonfree --enable-cuda-nvcc --enable-ffnvcodec --enable-nvenc --enable-libnpp --disable-x86asm \
   --extra-cflags=-I/usr/local/cuda/include --extra-ldflags=-L/usr/local/cuda/lib64 && \
   make -j 10 && \
   make install && \
