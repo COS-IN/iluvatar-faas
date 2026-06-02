@@ -44,6 +44,9 @@ pub fn order_pool_eviction(
 fn lru_eviction(list: Subpool) -> (Subpool, Subpool) {
     let mut insts: Vec<(tokio::time::Instant, Container)> = list.into_iter().map(|c| (c.last_used(), c)).collect();
     insts.sort_unstable_by(|c1, c2| c1.0.cmp(&c2.0));
+    for (last_used, c) in insts.iter() {
+        debug!(container_id=%c.container_id(), fqdn=%c.fqdn(), last_used=?last_used, "Eviction: LRU eviction candidate");
+    }
     (insts.into_iter().map(|c| c.1).collect(), vec![])
 }
 
@@ -53,6 +56,7 @@ fn ttl_eviction(list: Subpool, timeout: Duration) -> (Subpool, Subpool) {
     for ctr in list.into_iter() {
         let last_used = ctr.last_used();
         if last_used.elapsed() >= timeout {
+            debug!(container_id=%ctr.container_id(), fqdn=%ctr.fqdn(), elapsed=?last_used.elapsed(), timeout=?timeout, "Eviction: TTL eviction candidate");
             evict.push(ctr);
         } else {
             sort.push((last_used, ctr));
@@ -85,7 +89,7 @@ fn greedy_dual_eviction(mgr: &ContainerManager, list: Subpool) -> (Subpool, Subp
     insts.sort_unstable_by(|c1, c2| c1.0.partial_cmp(&c2.0).unwrap_or(std::cmp::Ordering::Equal));
 
     for (priority, c) in insts.iter() {
-        debug!(container_id=%c.container_id(), fqdn=%c.fqdn(), priority=priority, "GreedyDual candidate priority");
+        debug!(container_id=%c.container_id(), fqdn=%c.fqdn(), priority=priority, "Eviction: GreedyDual candidate priority");
     }
 
     (insts.into_iter().map(|c| c.1).collect(), vec![])

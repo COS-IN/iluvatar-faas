@@ -392,7 +392,7 @@ impl ContainerManager {
         let rpool = self.get_resource_pool(compute)?;
         rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
-        debug!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Container cold start completed");
+        info!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
             .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -403,7 +403,7 @@ impl ContainerManager {
     /// Returns [None] if the container is unhealthy or an error occurs
     fn try_lock_container(self: &Arc<Self>, container: Container, tid: &TransactionId) -> Option<ContainerLock> {
         if container.is_healthy() {
-            debug!(tid=tid, container_id=%container.container_id(), "Container acquired");
+            info!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), state=?container.state(), "Container acquired");
             container.touch();
             self.update_greedy_dual_priority(&container);
             if let Some(cnt) = self.outstanding_containers.get(container.fqdn()) {
@@ -728,13 +728,13 @@ impl ContainerManager {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
         let mem_usage = container.get_curr_mem_usage();
-        debug!(
+        info!(
             tid = tid,
             container_id = %container.container_id(),
             fqdn = %container.fqdn(),
             compute = ?container.compute_type(),
             memory = mem_usage,
-            "Purging container and releasing resources"
+            "Eviction: Purging container and releasing resources"
         );
         let r = match self.cont_isolations.get(&container.container_type()) {
             Some(c) => c.remove_container(container.clone(), "default", tid).await,
@@ -769,7 +769,7 @@ impl ContainerManager {
         }
         match chosen {
             Some(c) => {
-                debug!(tid=tid, container_id=%c.container_id(), fqdn=%c.fqdn(), "Evicting container to reclaim GPU");
+                info!(tid=tid, container_id=%c.container_id(), fqdn=%c.fqdn(), "Eviction: Evicting container to reclaim GPU");
                 self.record_eviction(&c);
                 self.purge_container(c.clone(), tid).await?
             },
@@ -792,7 +792,7 @@ impl ContainerManager {
         for container in self.prioritized_list.read().iter() {
             if let Some(removed_ctr) = self.cpu_containers.remove_container(container, tid) {
                 let usage = removed_ctr.get_curr_mem_usage();
-                debug!(tid=tid, container_id=%removed_ctr.container_id(), fqdn=%removed_ctr.fqdn(), usage=usage, "Selected container for memory reclamation");
+                info!(tid=tid, container_id=%removed_ctr.container_id(), fqdn=%removed_ctr.fqdn(), usage=usage, "Eviction: Selected container for memory reclamation");
                 to_remove.push(removed_ctr.clone());
                 reclaimed += usage;
                 if reclaimed >= amount_mb {
@@ -802,6 +802,7 @@ impl ContainerManager {
         }
         debug!(tid = tid, requested = amount_mb, actual = reclaimed, "Memory reclamation selection complete");
         for container in to_remove {
+            info!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Eviction: Evicting container for memory reclamation");
             self.record_eviction(&container);
             self.purge_container(container, tid).await?;
         }
@@ -837,12 +838,12 @@ impl ContainerManager {
                     continue;
                 }
             }
-            debug!(
+            info!(
                 tid = tid,
                 container_id = %to_remove.container_id(),
                 fqdn = %to_remove.fqdn(),
                 compute = ?to_remove.compute_type(),
-                "Evicting idle container based on policy"
+                "Eviction: Evicting idle container based on policy"
             );
             self.record_eviction(&to_remove);
             match self.purge_container(to_remove, &tid).await {

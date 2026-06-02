@@ -296,7 +296,7 @@ worker_kwargs = [
     ("fpd", 16, ("container_resources", "gpu_resource", "funcs_per_device")),
     (
         "per_func_gpu_memory",
-        16 * 1024,
+        10 * 1024,
         ("container_resources", "gpu_resource", "per_func_memory_mb"),
     ),
     ("mps", False, ("container_resources", "gpu_resource", "use_standalone_mps")),
@@ -306,7 +306,7 @@ worker_kwargs = [
         ("container_resources", "gpu_resource", "status_update_freq_ms"),
     ),
     ("use_driver", True, ("container_resources", "gpu_resource", "use_driver_hook")),
-    ("prefetch", True, ("container_resources", "gpu_resource", "prefetch_memory")),
+    ("prefetch", False, ("container_resources", "gpu_resource", "prefetch_memory")),
     ("gpu_util", 95, ("container_resources", "gpu_resource", "limit_on_utilization")),
     (
         "gpu_running",

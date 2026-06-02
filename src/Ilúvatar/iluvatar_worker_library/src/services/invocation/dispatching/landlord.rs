@@ -372,6 +372,9 @@ impl Landlord {
             "Landlord Disparity Check"
         );
 
+        let gpu_warm = self.cmap.get_avg(&reg.fqdn, Chars::GpuWarmTime) as f32;
+        let gpu_cold = self.cmap.get_avg(&reg.fqdn, Chars::GpuColdTime) as f32;
+
         info!(
             tid = tid,
             fqdn = reg.fqdn,
@@ -384,6 +387,8 @@ impl Landlord {
             cpu_exec = cpu_exec,
             gpu_est_total = gpu_est_total,
             cpu_est_total = cpu_est_total,
+            gpu_warm = gpu_warm,
+            gpu_cold = gpu_cold,
             "Landlord Credit"
         );
 
