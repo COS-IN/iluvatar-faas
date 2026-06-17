@@ -53,6 +53,7 @@ pub trait ContainerT: ToAny + Send + Sync {
     fn revoke_device(&self) -> Option<crate::services::resources::gpu::GPU>;
     async fn move_to_device(&self, tid: &TransactionId) -> Result<()>;
     async fn move_from_device(&self, tid: &TransactionId) -> Result<()>;
+    async fn update_device_memory_from_container(&self, tid: &TransactionId) -> Result<MemSizeMb>;
     /// Perform any actions that might improve performance before invocation(s) are sent
     async fn prewarm_actions(&self, _tid: &TransactionId) -> Result<()> {
         Ok(())

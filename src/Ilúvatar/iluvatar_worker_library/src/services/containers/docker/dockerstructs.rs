@@ -167,6 +167,11 @@ impl ContainerT for DockerContainer {
         }
         self.client.move_from_device(tid, &self.container_id).await
     }
+    async fn update_device_memory_from_container(&self, tid: &TransactionId) -> Result<MemSizeMb> {
+        let usage = self.client.get_gpu_memory(tid, &self.container_id).await?;
+        self.set_device_memory(usage);
+        Ok(usage)
+    }
     fn device_memory(&self) -> (MemSizeMb, bool) {
         *self.dev_mem_usage.read()
     }

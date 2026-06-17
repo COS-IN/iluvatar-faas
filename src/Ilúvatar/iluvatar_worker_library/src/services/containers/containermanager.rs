@@ -45,6 +45,9 @@ pub struct ContainerManager {
     gpu_containers: ContainerPool,
     resources: Arc<ContainerResourceConfig>,
     used_mem_mb: Arc<RwLock<MemSizeMb>>,
+    /// Aggregate GPU VRAM usage across all live containers, in MB.
+    /// Updated synchronously on container create/destroy and reconciled in background monitor.
+    used_gpu_mem_mb: Arc<RwLock<MemSizeMb>>,
     cmap: WorkerCharMap,
     cont_isolations: ContainerIsolationCollection,
     /// For keep-alive eviction
@@ -97,6 +100,7 @@ impl ContainerManager {
             gpu_resources,
             cmap: cmap.clone(),
             used_mem_mb: Arc::new(RwLock::new(0)),
+            used_gpu_mem_mb: Arc::new(RwLock::new(0)),
             cpu_containers: ContainerPool::new(Compute::CPU),
             gpu_containers: ContainerPool::new(Compute::GPU),
             prioritized_list: RwLock::new(Vec::new()),
@@ -161,11 +165,17 @@ impl ContainerManager {
         let used_mem = self.used_memory();
         let total_mem = self.total_memory();
         let num_containers = self.num_containers();
+        let used_gpu = self.used_gpu_memory();
+        let total_gpu = self.total_gpu_memory();
+        let free_gpu = self.free_gpu_memory();
         info!(
             tid = tid,
             used_mem = used_mem,
             total_mem = total_mem,
             num_containers = num_containers,
+            used_gpu_mem = used_gpu,
+            total_gpu_mem = total_gpu,
+            free_gpu_mem = free_gpu,
             "Container manager info"
         );
         Ok(ContainerMgrStat {
@@ -224,6 +234,20 @@ impl ContainerManager {
             None => 0,
         }
     }
+    /// Aggregate GPU VRAM used by all live containers, in MB.
+    pub fn used_gpu_memory(&self) -> MemSizeMb {
+        *self.used_gpu_mem_mb.read()
+    }
+    /// Total hardware GPU memory across all physical GPUs, in MB.
+    pub fn total_gpu_memory(&self) -> MemSizeMb {
+        match &self.gpu_resources {
+            Some(gr) => gr.total_gpu_memory_mb(),
+            None => 0,
+        }
+    }
+    pub fn free_gpu_memory(&self) -> MemSizeMb {
+        self.total_gpu_memory() - self.used_gpu_memory()
+    }
     pub fn num_containers(&self) -> u32 {
         self.cpu_containers.len() + self.gpu_containers.len()
     }
@@ -278,12 +302,34 @@ impl ContainerManager {
         let gpu_mem = self.calc_container_pool_memory_usages(&self.gpu_containers, tid).await;
         let new_total_mem = cpu_mem + gpu_mem;
         *self.used_mem_mb.write() = new_total_mem;
+        // Reconcile aggregate GPU VRAM usage by summing actual container-reported device memory.
+        // Not from nvidia-smi command of different GPUs
+        let old_gpu_usage = *self.used_gpu_mem_mb.read();
+        let mut reconciled_gpu_usage: MemSizeMb = 0;
+        for container in self.gpu_containers.iter() {
+            if container.is_healthy() {
+                let (device_mem, _present) = container.device_memory();
+                if device_mem > 0 {
+                    reconciled_gpu_usage += device_mem;
+                }
+            }
+        }
+        *self.used_gpu_mem_mb.write() = reconciled_gpu_usage;
+        if reconciled_gpu_usage != old_gpu_usage {
+            debug!(
+                tid = tid,
+                old_gpu_usage = old_gpu_usage,
+                reconciled_gpu_usage = reconciled_gpu_usage,
+                "Reconciled aggregate GPU memory usage from container-reported VRAM"
+            );
+        }
         debug!(
             tid = tid,
             old_total = old_total_mem,
             total = new_total_mem,
             cpu_pool = cpu_mem,
             gpu_pool = gpu_mem,
+            used_gpu_mem = reconciled_gpu_usage,
             "Total container memory usage"
         );
         if new_total_mem < 0 {
@@ -294,16 +340,27 @@ impl ContainerManager {
                 "Container memory usage has gone negative"
             );
         }
+        if reconciled_gpu_usage < 0 {
+            error!(
+                tid = tid,
+                old_gpu_usage = old_gpu_usage,
+                reconciled_gpu_usage = reconciled_gpu_usage,
+                "GPU memory usage has gone negative"
+            );
+        }
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, pool), fields(tid=tid)))]
     async fn calc_container_pool_memory_usages(&self, pool: &ContainerPool, tid: &TransactionId) -> MemSizeMb {
         debug!(tid=tid, pool=%pool.pool_name(), "updating container memory usages");
         let mut new_total_mem = 0;
-        for container in pool.iter().iter().filter(|c| c.is_healthy()) {
+        for container in pool.iter() {
+            if !container.is_healthy() {
+                continue;
+            }
             let old_usage = container.get_curr_mem_usage();
             let new_usage = match self.cont_isolations.get(&container.container_type()) {
-                Some(c) => c.update_memory_usage_mb(container, tid).await,
+                Some(c) => c.update_memory_usage_mb(&container, tid).await,
                 None => {
                     error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported");
                     continue;
@@ -312,6 +369,25 @@ impl ContainerManager {
             self.cmap.update(container.fqdn(), Chars::MemoryUsage, new_usage as f64);
             new_total_mem += new_usage;
             debug!(tid=tid, container_id=%container.container_id(), new_usage=new_usage, old=old_usage, "updated container memory usage");
+            if container.compute_type() == Compute::GPU {
+                let old_gpu_vram = container.device_memory().0;
+                match container.update_device_memory_from_container(tid).await {
+                    Ok(gpu_vram) => {
+                        let delta = gpu_vram - old_gpu_vram;
+                        if delta != 0 {
+                            if let Some(gpu_man) = &self.gpu_resources {
+                                if let Some(gpu) = container.device_resource().as_ref() {
+                                    gpu_man.update_mem_usage(gpu, delta);
+                                }
+                            }
+                        }
+                        info!(tid=tid, container_id=%container.container_id(), gpu_vram=gpu_vram, delta=delta, "updated container GPU memory usage in background");
+                    }
+                    Err(e) => {
+                        warn!(tid=tid, container_id=%container.container_id(), error=%e, "failed to update container GPU memory in background");
+                    }
+                }
+            }
         }
         new_total_mem
     }
@@ -392,7 +468,11 @@ impl ContainerManager {
         let rpool = self.get_resource_pool(compute)?;
         rpool.add_running_container(container.clone(), tid);
         self.prioritiy_notify.notify_waiters();
-        info!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(), "Container cold start completed");
+        let used_gpu = self.used_gpu_memory();
+        let free_gpu = self.free_gpu_memory();
+        info!(tid=tid, container_id=%container.container_id(), fqdn=%container.fqdn(),
+              used_gpu_mem=used_gpu, free_gpu_mem=free_gpu,
+              "Container cold start completed");
         container.set_state(ContainerState::Cold);
         self.try_lock_container(container, tid)
             .ok_or_else(|| anyhow::anyhow!("Encountered an error making conatiner lock"))
@@ -563,7 +643,28 @@ impl ContainerManager {
                 };
             },
         };
-        info!(tid=tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
+        // Track GPU VRAM usage at launch: query the container for actual usage.
+        // We do NOT use allotted_mb here because with GPU overcommitment, allotted_mb
+        // equals the full hardware memory per container, inflating the aggregate.
+        if compute == Compute::GPU {
+            let actual_gpu_mem = match cont.update_device_memory_from_container(tid).await {
+                Ok(usage) => usage,
+                Err(e) => {
+                    debug!(tid=tid, container_id=%cont.container_id(), error=%e,
+                           "Could not query GPU memory at launch, will reconcile in background");
+                    0
+                },
+            };
+            if actual_gpu_mem > 0 {
+                *self.used_gpu_mem_mb.write() += actual_gpu_mem;
+            }
+            info!(tid=tid, image=%reg.image_name, container_id=%cont.container_id(),
+                  actual_gpu_mem=actual_gpu_mem, used_gpu_mem=self.used_gpu_memory(),
+                  free_gpu_mem=self.free_gpu_memory(),
+                  "GPU container was launched");
+        } else {
+            info!(tid=tid, image=%reg.image_name, container_id=%cont.container_id(), "Container was launched");
+        }
         Ok(cont)
     }
 
@@ -728,12 +829,22 @@ impl ContainerManager {
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container), fields(tid=tid)))]
     async fn purge_container(&self, container: Container, tid: &TransactionId) -> Result<()> {
         let mem_usage = container.get_curr_mem_usage();
+        // Capture GPU VRAM before purging — use only the container-reported device_memory,
+        // NOT allotted_mb, because with GPU overcommitment allotted_mb is the full hardware
+        // memory and would over-subtract.
+        let gpu_mem_freed = if container.compute_type() == Compute::GPU {
+            let (device_mem, _present) = container.device_memory();
+            if device_mem > 0 { device_mem } else { 0 }
+        } else {
+            0
+        };
         info!(
             tid = tid,
             container_id = %container.container_id(),
             fqdn = %container.fqdn(),
             compute = ?container.compute_type(),
             memory = mem_usage,
+            gpu_mem_freed = gpu_mem_freed,
             "Eviction: Purging container and releasing resources"
         );
         let r = match self.cont_isolations.get(&container.container_type()) {
@@ -741,6 +852,18 @@ impl ContainerManager {
             None => bail_error!(tid=tid, iso=?container.container_type(), "Lifecycle for container not supported"),
         };
         *self.used_mem_mb.write() -= mem_usage;
+        // Update aggregate GPU memory tracking
+        if gpu_mem_freed > 0 {
+            let mut gpu_usage = self.used_gpu_mem_mb.write();
+            *gpu_usage = (*gpu_usage - gpu_mem_freed).max(0);
+            info!(
+                tid = tid,
+                container_id = %container.container_id(),
+                gpu_mem_freed = gpu_mem_freed,
+                used_gpu_mem = *gpu_usage,
+                "Updated aggregate GPU memory after container purge"
+            );
+        }
         self.return_gpu(&container, tid);
         container.remove_drop(tid);
         self.prioritiy_notify.notify_waiters();

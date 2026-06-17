@@ -209,4 +209,8 @@ impl ContainerClient for SocketContainerClient {
         drop(sock);
         self.check_driver_status(tid, &buff)
     }
+
+    async fn get_gpu_memory(&self, _tid: &TransactionId, _container_id: &str) -> Result<iluvatar_library::types::MemSizeMb> {
+        Ok(0)
+    }
 }

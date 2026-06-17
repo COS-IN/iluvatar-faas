@@ -19,6 +19,7 @@ pub struct HttpContainerClient {
     move_to_dev: String,
     move_to_host: String,
     client: Client,
+    gpu_mem_uri: String,
 }
 
 impl HttpContainerClient {
@@ -48,6 +49,7 @@ impl HttpContainerClient {
             _base_uri: calculate_base_uri(address, port),
             move_to_dev: format_uri(address, port, "prefetch_stream_dev"),
             move_to_host: format_uri(address, port, "prefetch_stream_host"),
+            gpu_mem_uri: format_uri(address, port, "gpu_mem"),
         })
     }
 
@@ -173,5 +175,26 @@ impl ContainerClient for HttpContainerClient {
         let text = self.download_text(response, tid, container_id).await?;
         self.check_http_status(tid, status, &text, container_id)?;
         self.check_driver_status(tid, &text)
+    }
+
+    async fn get_gpu_memory(&self, tid: &TransactionId, container_id: &str) -> Result<iluvatar_library::types::MemSizeMb> {
+        let builder = self.client.get(&self.gpu_mem_uri);
+        let response = match builder.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                bail_error!(tid=tid, inner=std::error::Error::source(&e),
+                            status=?e.status(), error=%e, container_id=%container_id,
+                            "HTTP error when trying to fetch GPU memory");
+            },
+        };
+        let status = response.status();
+        let text = self.download_text(response, tid, container_id).await?;
+        self.check_http_status(tid, status, &text, container_id)?;
+        let parsed: serde_json::Value = serde_json::from_str(&text)?;
+        let usage = parsed.get("gpu_allocation_mb")
+            .or_else(|| parsed.get("gpu_mem"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0) as iluvatar_library::types::MemSizeMb;
+        Ok(usage)
     }
 }

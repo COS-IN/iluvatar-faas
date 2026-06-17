@@ -885,6 +885,11 @@ impl GpuResourceTracker {
         self.gpu_metadata.iter().map(|g| g.1.max_running).sum::<u32>()
     }
 
+    /// Total hardware GPU memory across all physical GPUs, in MB.
+    pub fn total_gpu_memory_mb(&self) -> MemSizeMb {
+        self.gpu_metadata.iter().map(|(_id, meta)| meta.hardware_memory_mb).sum()
+    }
+
 
 
 

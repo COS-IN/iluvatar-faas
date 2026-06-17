@@ -2,7 +2,7 @@ use crate::services::containers::structs::ParsedResult;
 use crate::services::registration::RegisteredFunction;
 use async_trait::async_trait;
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::ContainerServer;
+use iluvatar_library::types::{ContainerServer, MemSizeMb};
 use iluvatar_library::utils::port::Port;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +21,7 @@ pub trait ContainerClient: Send + Sync {
     ) -> anyhow::Result<(ParsedResult, Duration)>;
     async fn move_to_device(&self, tid: &TransactionId, container_id: &str) -> anyhow::Result<()>;
     async fn move_from_device(&self, tid: &TransactionId, container_id: &str) -> anyhow::Result<()>;
+    async fn get_gpu_memory(&self, tid: &TransactionId, container_id: &str) -> anyhow::Result<MemSizeMb>;
 }
 pub async fn create_container_client(
     function: &Arc<RegisteredFunction>,

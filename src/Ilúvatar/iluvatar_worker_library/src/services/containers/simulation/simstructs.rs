@@ -268,6 +268,9 @@ impl ContainerT for SimulatorContainer {
         *lck = (lck.0, false);
         Ok(())
     }
+    async fn update_device_memory_from_container(&self, _tid: &TransactionId) -> Result<MemSizeMb> {
+        Ok(self.device_memory().0)
+    }
     fn add_drop_on_remove(&self, item: DroppableToken, tid: &TransactionId) {
         debug!(tid=tid, container_id=%self.container_id(), "Adding token to drop on remove");
         self.drop_on_remove.lock().push(item);
