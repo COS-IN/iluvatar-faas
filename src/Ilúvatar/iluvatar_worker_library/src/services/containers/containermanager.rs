@@ -575,25 +575,33 @@ impl ContainerManager {
             },
         };
 
-        let gpu = self.get_gpu(tid, compute)?;
-        let curr_mem = *self.used_mem_mb.read();
-        if curr_mem + reg.memory > self.resources.memory_mb {
-            let avail = self.resources.memory_mb - curr_mem;
-            debug!(
-                tid = tid,
-                needed = reg.memory - avail,
-                used = curr_mem,
-                available = avail,
-                "Can't launch container due to insufficient memory"
-            );
-            anyhow::bail!(InsufficientMemoryError {
-                needed: reg.memory - avail,
-                used: curr_mem,
-                available: avail
-            });
-        } else {
-            *self.used_mem_mb.write() += reg.memory;
+        {
+            let mut curr_mem = self.used_mem_mb.write();
+            if *curr_mem + reg.memory > self.resources.memory_mb {
+                let avail = self.resources.memory_mb.saturating_sub(*curr_mem);
+                debug!(
+                    tid = tid,
+                    needed = reg.memory.saturating_sub(avail),
+                    used = *curr_mem,
+                    available = avail,
+                    "Can't launch container due to insufficient memory"
+                );
+                anyhow::bail!(InsufficientMemoryError {
+                    needed: reg.memory.saturating_sub(avail),
+                    used: *curr_mem,
+                    available: avail
+                });
+            }
+            *curr_mem += reg.memory;
         }
+
+        let gpu = match self.get_gpu(tid, compute) {
+            Ok(g) => g,
+            Err(e) => {
+                *self.used_mem_mb.write() -= reg.memory;
+                return Err(e);
+            }
+        };
         let fqdn = calculate_fqdn(&reg.function_name, &reg.function_version);
         let cont = cont_lifecycle
             .run_container(
@@ -613,7 +621,10 @@ impl ContainerManager {
         let cont = match cont {
             Ok(cont) => cont,
             Err((e, gpu)) => {
-                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
+                {
+                    let mut mem = self.used_mem_mb.write();
+                    *mem = i64::max(*mem - reg.memory, 0);
+                }
                 if let Some(gpu_man) = self.gpu_resources.as_ref() {
                     if let Some(gpu) = gpu {
                         gpu_man.return_gpu(gpu, tid);
@@ -629,7 +640,10 @@ impl ContainerManager {
         {
             Ok(_) => (),
             Err(e) => {
-                *self.used_mem_mb.write() = i64::max(curr_mem - reg.memory, 0);
+                {
+                    let mut mem = self.used_mem_mb.write();
+                    *mem = i64::max(*mem - reg.memory, 0);
+                }
                 self.return_gpu(&cont, tid);
                 match cont_lifecycle.remove_container(cont, "default", tid).await {
                     Ok(_) => {

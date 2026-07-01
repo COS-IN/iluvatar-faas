@@ -1,3 +1,4 @@
+use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError};
 use super::{DeviceQueue, EnqueuedInvocation};
 use crate::services::containers::{
     containermanager::ContainerManager,
@@ -385,6 +386,7 @@ pub struct MQFQ {
     mindicator: Arc<Mindicator>,
     active_flows: RwLock<u32>,
     device_tput: Arc<DeviceTput>,
+    invocation_config: Arc<InvocationConfig>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -512,6 +514,7 @@ impl MQFQ {
             mindicator: Mindicator::boxed(0),
             active_flows: RwLock::new(0),
             device_tput: DeviceTput::boxed(),
+            invocation_config: invocation_config.clone(),
         });
         gpu_tx.send(svc.clone())?;
         if let Some(mon_tx) = mon_tx {
@@ -623,8 +626,7 @@ impl MQFQ {
                         .mark_successful(result, duration, container.compute_type(), container.state());
                     Some(container)
                 },
-                Err(cause) => {
-                    self.handle_invocation_error(item.invoke.clone(), cause);
+                Err(cause) => {self.handle_invocation_error(item.invoke.clone(), cause).await;
                     None
                 },
             };
@@ -651,13 +653,40 @@ impl MQFQ {
     ///   Calls [Self::add_item_to_queue] to do this
     /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
-    fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
-        debug!(tid=item.tid, error=%cause, "Marking invocation as error");
-        item.mark_error(&cause);
+    async fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
+        debug!(tid=item.tid, error=%cause, "Handling invocation error in MQFQ");
+        if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
+            // Track memory allocation retries per invocation and fail the task if retry limit is exceeded.
+            // This prevents an infinite busy loop that floods the logs and exhausts disk space.
+            if item.increment_error_retry(&cause, self.invocation_config.retries) {
+                // Add a backoff delay before re-queueing to give the worker time to free/evict container memory.
+                tokio::time::sleep(tokio::time::Duration::from_millis(self.invocation_config.queue_sleep_ms)).await;
+                item.unlock();
+                self.add_invok_to_flow(item.clone());
+                info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after memory insufficiency attempt");
+            }
+        } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
+            // Track GPU allocation retries per invocation and fail the task if retry limit is exceeded.
+            // This prevents an infinite busy loop that floods the logs and exhausts disk space.
+            if item.increment_error_retry(&cause, self.invocation_config.retries) {
+                // Add a backoff delay before re-queueing to give the worker time to free/evict GPU resources.
+                tokio::time::sleep(tokio::time::Duration::from_millis(self.invocation_config.queue_sleep_ms)).await;
+                item.unlock();
+                self.add_invok_to_flow(item.clone());
+                info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after GPU insufficiency attempt");
+            }
+        } else {
+            error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
+            if item.increment_error_retry(&cause, self.invocation_config.retries) {
+                item.unlock();
+                self.add_invok_to_flow(item.clone());
+                info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after attempt");
+            }
+        }
     }
 
     /// call async to invoke code.
-    /// Tries to soft-reclaim memory required for this function. No buffer. 
+    /// Tries to soft-reclaim memory required for this function. No buffer.
     async fn soft_evict_for_reg(
         &self,
         reg: Arc<RegisteredFunction>,

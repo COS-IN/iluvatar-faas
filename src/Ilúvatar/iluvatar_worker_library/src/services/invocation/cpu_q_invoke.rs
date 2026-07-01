@@ -280,7 +280,10 @@ impl CpuQueueingInvoker {
             error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
             if item.increment_error_retry(&cause, self.invocation_config.retries) {
                 match self.queue.add_item_to_queue(&item, Some(0)) {
-                    Ok(_) => self.signal.notify_waiters(),
+                    Ok(_) => {
+                        info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after attempt");
+                        self.signal.notify_waiters();
+                    },
                     Err(e) => {
                         error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
                         item.mark_error(&e);

@@ -343,19 +343,9 @@ impl GpuQueueingInvoker {
                     item.mark_successful(result, duration, compute, container_state)
                 },
                 Err(cause) => {
-                    error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
                     ctr_lock.as_ref().unwrap().container.mark_unhealthy();
                     ctr_lock = None;
-                    if item.increment_error_retry(&cause, self.invocation_config.retries) {
-                        item.unlock();
-                        match self.queue.add_item_to_queue(&item) {
-                            Ok(_) => self.signal.notify_waiters(),
-                            Err(e) => {
-                                item.mark_error(&cause);
-                                error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
-                            },
-                        };
-                    }
+                    self.handle_invocation_error(&item, &cause);
                     continue;
                 },
             };
@@ -411,7 +401,18 @@ impl GpuQueueingInvoker {
             };
         } else {
             error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
-            item.mark_error(cause);
+            if item.increment_error_retry(cause, self.invocation_config.retries) {
+                match self.queue.add_item_to_queue(item) {
+                    Ok(_) => {
+                        info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after attempt");
+                        self.signal.notify_waiters();
+                    },
+                    Err(e) => {
+                        item.mark_error(cause);
+                        error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
+                    },
+                };
+            }
         }
     }
 

@@ -252,6 +252,7 @@ worker_kwargs = [
         ("invocation", "queue_policies", "GPU"),
     ),
     ("enqueueing", "All", ("invocation", "enqueueing_policy")),
+    ("retries", "1", ("invocation", "retries")),
     ("invoke_queue_sleep_ms", 500, ("invocation", "queue_sleep_ms")),
     ("enqueuing_log_details", False, ("invocation", "enqueuing_log_details")),
     # docker
