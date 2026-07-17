@@ -549,11 +549,11 @@ impl ContainerManager {
     }
 
     fn return_gpu(&self, container: &Container, tid: &TransactionId) {
+        let (gpu_mem, present) = container.device_memory();
         if let Some(gpu) = container.revoke_device() {
             if let Some(gpu_man) = self.gpu_resources.as_ref() {
-                let (gpu_mem, present) = container.device_memory();
                 if present {
-                    gpu_man.update_mem_usage(&gpu, gpu_mem);
+                    gpu_man.update_mem_usage(&gpu, -gpu_mem);
                 }
                 gpu_man.return_gpu(gpu, tid);
             }
