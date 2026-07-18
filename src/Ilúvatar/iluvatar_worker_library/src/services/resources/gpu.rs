@@ -1142,10 +1142,11 @@ impl GpuResourceTracker {
 
     pub fn update_mem_usage(&self, gpu: &GPU, amt: MemSizeMb) {
         if let Some(meta) = self.gpu_metadata.get(&gpu.gpu_hardware_id) {
+            let curr = *meta.device_allocated_memory.read();
             debug!(
                 gpu_id = gpu.struct_id,
                 mem_diff = amt,
-                curr_used = *meta.device_allocated_memory.write(),
+                curr_used = curr,
                 "updating device memory usage"
             );
             *meta.device_allocated_memory.write() += amt;
