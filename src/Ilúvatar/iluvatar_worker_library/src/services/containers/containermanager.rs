@@ -910,8 +910,10 @@ impl ContainerManager {
                 self.record_eviction(&c);
                 self.purge_container(c.clone(), tid).await?
             },
-            None => warn!(tid = tid, "tried to evict a container for a GPU, but was unable"),
-	    // XXX: Should add the retry-path here. 
+            None => {
+                warn!(tid = tid, "tried to evict a container for a GPU, but was unable — all containers busy");
+                anyhow::bail!(InsufficientGPUError {});
+            }
         };
         Ok(())
     }
@@ -926,6 +928,7 @@ impl ContainerManager {
         debug!(tid=tid, amount=amount_mb, "Attempting to reclaim memory via eviction");
         let mut reclaimed: MemSizeMb = 0;
         let mut to_remove = Vec::new();
+        // First try CPU containers (cheaper to evict — no GPU slot involved)
         for container in self.prioritized_list.read().iter() {
             if let Some(removed_ctr) = self.cpu_containers.remove_container(container, tid) {
                 let usage = removed_ctr.get_curr_mem_usage();
@@ -936,6 +939,24 @@ impl ContainerManager {
                     break;
                 }
             }
+        }
+        // If CPU eviction was insufficient (e.g. GPU-only worker), also consider GPU containers
+        if reclaimed < amount_mb {
+            for container in self.prioritized_gpu_list.read().iter() {
+                if reclaimed >= amount_mb {
+                    break;
+                }
+                if let Some(removed_ctr) = self.gpu_containers.remove_container(container, tid) {
+                    let usage = removed_ctr.get_curr_mem_usage();
+                    info!(tid=tid, container_id=%removed_ctr.container_id(), usage=usage,
+                          "Eviction: Selected GPU container for host-RAM reclamation");
+                    to_remove.push(removed_ctr.clone());
+                    reclaimed += usage;
+                }
+            }
+        }
+        if reclaimed == 0 {
+            anyhow::bail!("Could not reclaim {}MB — no evictable containers available", amount_mb);
         }
         debug!(tid = tid, requested = amount_mb, actual = reclaimed, "Memory reclamation selection complete");
         for container in to_remove {
