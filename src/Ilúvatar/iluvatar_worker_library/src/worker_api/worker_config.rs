@@ -61,6 +61,9 @@ pub struct ContainerResourceConfig {
     pub startup_timeout_ms: u64,
     /// amount of memory the container pool monitor will try and maintain as a buffer (eager eviction)
     pub memory_buffer_mb: MemSizeMb,
+    /// amount of GPU memory the container pool monitor will try and maintain as a buffer (eager eviction)
+    #[serde(default)]
+    pub gpu_memory_buffer_mb: MemSizeMb,
     /// how often the container pool monitor will run, in milliseconds
     pub pool_freq_ms: u64,
     /// the snapshotter to use with containerd (if relevant)

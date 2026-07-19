@@ -13,7 +13,7 @@ use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracke
 use crate::services::{
     containers::{
         containermanager::ContainerManager,
-        structs::{ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
+        structs::{ContainerState, InsufficientGPUError, InsufficientGPUMemoryError, InsufficientMemoryError, ParsedResult},
     },
     invocation::invoke_on_container,
 };
@@ -385,7 +385,7 @@ impl GpuQueueingInvoker {
                     item.mark_error(cause);
                 },
             };
-        } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
+        } else if cause.downcast_ref::<InsufficientGPUError>().is_some() || cause.downcast_ref::<InsufficientGPUMemoryError>().is_some() {
             let mut warn_time = self.last_gpu_warning.lock();
             if warn_time.elapsed() > Duration::from_millis(500) {
                 warn!(tid = item.tid, "No GPU available to run item right now");

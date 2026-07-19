@@ -2,7 +2,7 @@ use super::container_pool::{ContainerPool, Subpool};
 use super::structs::{Container, ContainerLock, ContainerState};
 use super::ContainerIsolationCollection;
 use crate::services::containers::eviction::order_pool_eviction;
-use crate::services::containers::structs::{InsufficientGPUError, InsufficientMemoryError};
+use crate::services::containers::structs::{InsufficientGPUError, InsufficientGPUMemoryError, InsufficientMemoryError};
 use crate::services::resources::gpu::{GpuToken, InternalGpuId, GPU};
 use crate::services::{registration::RegisteredFunction, resources::gpu::GpuResourceTracker};
 use crate::worker_api::worker_config::ContainerResourceConfig;
@@ -131,21 +131,20 @@ impl ContainerManager {
 
     /// Memory availability above waterline. If not, atleast idle available to evict?
     pub fn mem_avail_for_new_ctr(self: &Arc<Self>) -> bool {
-	// XXX: This is global cpu+gpu free mem!?! aargh.
-	// why is getting the gpu free memory so hard!!
-	// Also will need the GPU id etc ughhh
-	
-	let slack = self.total_gpu_free_mem() - self.resources.memory_buffer_mb ;
-	// positive slack needed 
-	if slack < 0 {
-	    // We should be able to reclaim some, ensure no
-	    let idle_conts = self.gpu_containers.iter_idle();
-	    if idle_conts.len() == 0 {
-		return false
-	    }
-	    return true 
-	}
-	return true 
+        let buf = self.resources.gpu_memory_buffer_mb;
+        if buf <= 0 {
+            return true;  // no GPU buffer configured
+        }
+        let free = self.free_gpu_memory();  // Counter A: total_gpu_memory - used_gpu_mem_mb
+        if free >= buf {
+            return true;
+        }
+        // Below watermark: only allow if there is an idle container that can be evicted.
+        // Actual eviction happens in launch_container_internal on InsufficientGPUMemoryError.
+        let has_idle = self.gpu_containers.iter_idle().len() > 0;
+        debug!(free=free, buffer=buf, has_idle=has_idle,
+               "GPU memory below buffer in mem_avail_for_new_ctr");
+        has_idle
     }
     
     #[tracing::instrument(level="debug", skip(self), fields(tid=tid))]
@@ -160,6 +159,34 @@ impl ContainerManager {
                     Ok(_) => {},
                     Err(e) => error!(tid=tid, error=%e, "Error while trying to remove containers"),
                 };
+            }
+        }
+
+        // GPU VRAM buffer enforcement (proactive eviction when VRAM drops below watermark)
+        // This is optional , Much like prefetch?
+        if self.resources.gpu_memory_buffer_mb > 0 {
+            let gpu_free = self.free_gpu_memory();  // Counter A
+            let gpu_reclaim = self.resources.gpu_memory_buffer_mb.saturating_sub(gpu_free);
+            if gpu_reclaim > 0 {
+                info!(tid=tid, gpu_free=gpu_free, target=gpu_reclaim,
+                      buffer=self.resources.gpu_memory_buffer_mb,
+                      "GPU buffer below watermark, proactively evicting GPU containers");
+                let mut freed: MemSizeMb = 0;
+                let ctrs_to_evict: Vec<_> = self.prioritized_gpu_list.read().clone();
+                for ctr in ctrs_to_evict {
+                    if freed >= gpu_reclaim { break; }
+                    if let Ok(pool) = self.get_resource_pool(ctr.compute_type()) {
+                        if pool.remove_container(&ctr, tid).is_some() {
+                            freed += ctr.device_memory().0;
+                            self.record_eviction(&ctr);
+                            match self.purge_container(ctr, tid).await {
+                                Ok(_) => {},
+                                Err(e) => error!(tid=tid, error=%e, "Error evicting GPU ctr for buffer"),
+                            }
+                        }
+                    }
+                }
+                info!(tid=tid, freed=freed, target=gpu_reclaim, "GPU buffer enforcement complete");
             }
         }
         let used_mem = self.used_memory();
@@ -595,6 +622,22 @@ impl ContainerManager {
             *curr_mem += reg.memory;
         }
 
+        // GPU VRAM headroom check
+        if compute == Compute::GPU {
+            let buf = self.resources.gpu_memory_buffer_mb;
+            if buf > 0 {
+                let free = self.free_gpu_memory();   // Counter A: total_gpu_memory - used_gpu_mem_mb
+                if free < buf {
+                    *self.used_mem_mb.write() -= reg.memory;  // roll back CPU reservation
+                    anyhow::bail!(InsufficientGPUMemoryError {
+                        needed: buf - free,
+                        available: free,
+                        gpu_buffer: buf,
+                    });
+                }
+            }
+        }
+
         let gpu = match self.get_gpu(tid, compute) {
             Ok(g) => g,
             Err(e) => {
@@ -734,6 +777,10 @@ impl ContainerManager {
                     self.try_launch_container(reg, tid, compute).await
                 } else if cause.downcast_ref::<InsufficientGPUError>().is_some() {
                     debug!(tid = tid, fqdn = %reg.fqdn, "Insufficient GPU resources, attempting to reclaim a GPU");
+                    self.reclaim_hardest(tid).await?;
+                    self.try_launch_container(reg, tid, compute).await
+                } else if cause.downcast_ref::<InsufficientGPUMemoryError>().is_some() {
+                    debug!(tid=tid, fqdn=%reg.fqdn, "Insufficient GPU VRAM, attempting to reclaim GPU memory");
                     self.reclaim_hardest(tid).await?;
                     self.try_launch_container(reg, tid, compute).await
                 } else {

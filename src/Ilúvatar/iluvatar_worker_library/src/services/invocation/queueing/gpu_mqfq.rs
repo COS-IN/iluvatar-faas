@@ -1,4 +1,4 @@
-use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError};
+use crate::services::containers::structs::{InsufficientMemoryError, InsufficientGPUError, InsufficientGPUMemoryError};
 use super::{DeviceQueue, EnqueuedInvocation};
 use crate::services::containers::{
     containermanager::ContainerManager,
@@ -665,7 +665,7 @@ impl MQFQ {
                 self.add_invok_to_flow(item.clone());
                 info!(tid=item.tid, attempts=item.result_ptr.lock().attempts, "Re-queued item after memory insufficiency attempt");
             }
-        } else if let Some(_gpu_err) = cause.downcast_ref::<InsufficientGPUError>() {
+        } else if cause.downcast_ref::<InsufficientGPUError>().is_some() || cause.downcast_ref::<InsufficientGPUMemoryError>().is_some() {
             // Track GPU allocation retries per invocation and fail the task if retry limit is exceeded.
             // This prevents an infinite busy loop that floods the logs and exhausts disk space.
             if item.increment_error_retry(&cause, self.invocation_config.retries) {

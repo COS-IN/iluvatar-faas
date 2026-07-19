@@ -199,6 +199,21 @@ impl std::fmt::Display for InsufficientGPUError {
 impl std::error::Error for InsufficientGPUError {}
 
 #[derive(Debug)]
+pub struct InsufficientGPUMemoryError {
+    pub needed: MemSizeMb,
+    pub available: MemSizeMb,
+    pub gpu_buffer: MemSizeMb,
+}
+impl std::fmt::Display for InsufficientGPUMemoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "Insufficient GPU VRAM: need {}MB headroom, have {}MB free (buffer {}MB)",
+               self.needed, self.available, self.gpu_buffer)?;
+        Ok(())
+    }
+}
+impl std::error::Error for InsufficientGPUMemoryError {}
+
+#[derive(Debug)]
 /// An container start failed with a platform error
 pub struct ContainerStartupError {
     pub message: String,

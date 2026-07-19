@@ -5,7 +5,7 @@ use super::queueing::{
 use super::queueing::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy};
 use crate::services::containers::{
     containermanager::ContainerManager,
-    structs::{ContainerState, InsufficientGPUError, InsufficientMemoryError, ParsedResult},
+    structs::{ContainerState, InsufficientGPUError, InsufficientGPUMemoryError, InsufficientMemoryError, ParsedResult},
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -273,7 +273,7 @@ impl CpuQueueingInvoker {
                     item.mark_error(&e);
                 },
             };
-        } else if let Some(_mem_err) = cause.downcast_ref::<InsufficientGPUError>() {
+        } else if cause.downcast_ref::<InsufficientGPUError>().is_some() || cause.downcast_ref::<InsufficientGPUMemoryError>().is_some() {
             warn!(tid = item.tid, "No GPU available to run item right now");
             item.unlock();
         } else {
