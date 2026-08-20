@@ -263,7 +263,10 @@ impl ContainerManager {
     }
     /// Aggregate GPU VRAM used by all live containers, in MB.
     pub fn used_gpu_memory(&self) -> MemSizeMb {
-        *self.used_gpu_mem_mb.read()
+        match &self.gpu_resources {
+            Some(_gr) => self.total_gpu_memory() - self.total_gpu_free_mem(),
+            None => *self.used_gpu_mem_mb.read(),
+        }
     }
     /// Total hardware GPU memory across all physical GPUs, in MB.
     pub fn total_gpu_memory(&self) -> MemSizeMb {
@@ -273,7 +276,11 @@ impl ContainerManager {
         }
     }
     pub fn free_gpu_memory(&self) -> MemSizeMb {
-        self.total_gpu_memory() - self.used_gpu_memory()
+        if self.gpu_resources.is_some() {
+            self.total_gpu_free_mem()
+        } else {
+            self.total_gpu_memory() - self.used_gpu_memory()
+        }
     }
     pub fn num_containers(&self) -> u32 {
         self.cpu_containers.len() + self.gpu_containers.len()
@@ -333,15 +340,28 @@ impl ContainerManager {
         // Not from nvidia-smi command of different GPUs
         let old_gpu_usage = *self.used_gpu_mem_mb.read();
         let mut reconciled_gpu_usage: MemSizeMb = 0;
+        let mut per_gpu_mem: std::collections::HashMap<crate::services::resources::gpu::InternalGpuId, MemSizeMb> = std::collections::HashMap::new();
+
         for container in self.gpu_containers.iter() {
             if container.is_healthy() {
                 let (device_mem, _present) = container.device_memory();
                 if device_mem > 0 {
                     reconciled_gpu_usage += device_mem;
+                    if let Some(gpu) = container.device_resource().as_ref() {
+                        *per_gpu_mem.entry(gpu.gpu_hardware_id).or_insert(0) += device_mem;
+                    }
                 }
             }
         }
         *self.used_gpu_mem_mb.write() = reconciled_gpu_usage;
+
+        if let Some(gr) = &self.gpu_resources {
+            for gpu_id in 0..gr.physical_gpus() {
+                let usage = per_gpu_mem.get(&gpu_id).copied().unwrap_or(0);
+                gr.set_mem_usage_by_id(gpu_id, usage);
+            }
+        }
+
         if reconciled_gpu_usage != old_gpu_usage {
             debug!(
                 tid = tid,

@@ -1140,16 +1140,26 @@ impl GpuResourceTracker {
         (*self.status_info.read()).clone()
     }
 
+    pub fn set_mem_usage_by_id(&self, gpu_hardware_id: InternalGpuId, amt: MemSizeMb) {
+        if let Some(meta) = self.gpu_metadata.get(&gpu_hardware_id) {
+            let clamped = amt.clamp(0, meta.hardware_memory_mb);
+            *meta.device_allocated_memory.write() = clamped;
+        }
+    }
+
     pub fn update_mem_usage(&self, gpu: &GPU, amt: MemSizeMb) {
         if let Some(meta) = self.gpu_metadata.get(&gpu.gpu_hardware_id) {
             let curr = *meta.device_allocated_memory.read();
+            let new_mem = (curr as i128) + (amt as i128);
+            let clamped = new_mem.clamp(0, meta.hardware_memory_mb as i128) as MemSizeMb;
             debug!(
                 gpu_id = gpu.struct_id,
                 mem_diff = amt,
                 curr_used = curr,
+                new_clamped = clamped,
                 "updating device memory usage"
             );
-            *meta.device_allocated_memory.write() += amt;
+            *meta.device_allocated_memory.write() = clamped;
         }
     }
     pub fn get_free_mem_by_id(&self, gpu_hardware_id: InternalGpuId) -> MemSizeMb {
