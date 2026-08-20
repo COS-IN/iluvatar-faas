@@ -198,7 +198,11 @@ impl Landlord {
             None => {
                 // Most likely this is a new function, so avg e2e times will have low confidence?
                 // other place we are using opp_cost which uses a better estimator.
-                let cost = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+                let mut cost = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
+                if cost <= 0.0 {
+                    // Provide a small positive credit to functions admitted via lottery despite negative opp_cost
+                    cost = 0.001; 
+                }
                 //let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(reg.fqdn.to_string(), cost);
             },
@@ -359,7 +363,12 @@ impl Landlord {
         // with 4 active functions, this is a 20% buffer
         let gpu_est_total = adjusted_gpu_est * (1.0 + epsilon * n_active);
         let cpu_exec = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
-        let cpu_est_total = f64::max(cpu_est, cpu_exec);
+        let mut cpu_est_total = f64::max(cpu_est, cpu_exec);
+        if cpu_est_total <= 0.0 {
+            // If we have GPU exec time, estimate CPU exec time conservatively (e.g. 5x - 10x GPU exec time)
+            let gpu_exec = self.cmap.get_avg(&reg.fqdn, Chars::GpuExecTime);
+            cpu_est_total = if gpu_exec > 0.0 { gpu_exec * 5.0 } else { 0.5 };
+        }
 
         // Core Landlord decision log
         info!(
@@ -450,7 +459,7 @@ impl Landlord {
                             *cr > 0.0
                         }
                     },
-                    _ => false,
+                    _ => true,
                 }
             })
         }
@@ -747,11 +756,36 @@ impl Landlord {
         (xhat, z)
     }
 
+    pub fn get_cpu_est(&self, fqdn: &str, raw_cpu_est: f64) -> (f64, f64) {
+        let (est, e2e) = self
+            .cmap
+            .get_2(fqdn, Chars::EstCpu, Value::Avg, Chars::E2ECpu, Value::Avg);
+        let prev_est = match est {
+            0.0 => raw_cpu_est,
+            c => c,
+        };
+        let prev_e2e = match e2e {
+            0.0 => raw_cpu_est,
+            c => c,
+        };
+        let z = prev_e2e - prev_est; // residual error
+
+        let alpha = 0.1;
+        let beta = 0.7;
+        let k = 1.0 - (beta + alpha);
+        let xhat = (alpha * prev_est) + (beta * raw_cpu_est) + k * z;
+
+        self.cmap.update(fqdn, Chars::EstCpu, xhat);
+        info!(fqdn=%fqdn, raw_est=%raw_cpu_est, error=%z, kf_est=%xhat, "CPU Estimate");
+        (xhat, z)
+    }
+
     /// Main entry point and landlord caching logic
     fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.get_gpu_est(&reg.fqdn, mqfq_est);
-        let (cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
+        let (raw_cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
+        let (cpu_est, _cpu_err) = self.get_cpu_est(&reg.fqdn, raw_cpu_est);
         let szaware = !matches!(self.cachepol.as_str(), "LFU" | "LRU");
 
         // Disparity check must happen before any Compute selection.

@@ -403,14 +403,32 @@ impl DeviceQueue for CpuQueueingInvoker {
         }
     }
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
-        let qt = if self.queue_len() <= self.cpu.available_cores() {
-            // If Q is smaller than num of avail CPUs, we don't really have queuing,
-            // just a race from item being added recently and not popped
+        let cores = f64::max(1.0, self.cpu.cores);
+        let free_cores = self.cpu.available_cores() as f64;
+        let busy_cores = f64::max(0.0, cores - free_cores);
+        let queue_len = self.queue_len() as f64;
+        
+        // (1) Estimated queued work
+        let queued_work = self.queue.est_queue_time();
+
+        // (2) Estimated residual work of currently running tasks
+        // If available, use average execution time as expected remaining lifespan per busy core
+        let avg_exec = self.cmap.get_avg(&reg.fqdn, Chars::CpuExecTime);
+        let running_work = busy_cores * (if avg_exec > 0.0 { avg_exec * 0.5 } else { 1.0 });
+
+        // (3) Total queue delay: drain all pending and running work across available parallel cores
+        let qt = if free_cores > queue_len {
             0.0
         } else {
-            self.queue.est_queue_time() / f64::min(self.cpu.cores, self.queue_len() as f64)
+            (queued_work + running_work) / cores
         };
-        let (runtime, state) = self.get_est_completion_time_from_containers(reg);
+
+        let (mut runtime, state) = self.get_est_completion_time_from_containers(reg);
+        if runtime <= 0.0 {
+            // Fallback to average execution time or non-zero default if cold start time is not yet measured
+            runtime = if avg_exec > 0.0 { avg_exec } else { 0.1 };
+        }
+
         debug!(tid=tid, queue_time=qt, state=?state, runtime=runtime, "CPU estimated completion time of item");
         (qt + runtime, 0.0)
     }

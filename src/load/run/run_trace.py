@@ -320,6 +320,7 @@ worker_kwargs = [
     ("snapshotter", "zfs", ("container_resources", "snapshotter")),
     ("eviction", "LRU", ("container_resources", "eviction")),
     ("worker_memory_buffer", 1024, ("container_resources", "memory_buffer_mb")),
+    ("gpu_memory_buffer", 5000, ("container_resources", "gpu_memory_buffer_mb")),
     # influx
     ("influx_enabled", False, ("influx", "enabled")),
     ("influx_freq", 500, ("influx", "update_freq_ms")),
