@@ -411,7 +411,6 @@ impl Landlord {
         }
     }
 
-    /// Add new credit. If negative, return new credit instead of accumulating
     fn calc_add_credit(
         &mut self,
         reg: &Arc<RegisteredFunction>,
@@ -422,16 +421,12 @@ impl Landlord {
         tid: &TransactionId,
     ) -> f64 {
         let add_credit = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
-        if add_credit < 0.0 {
-            // no benefit! run on CPU
-            return add_credit;
-        }
         match self.credits.get_mut(&reg.fqdn) {
             Some(credit) => {
                 *credit += add_credit;
                 *credit
             },
-            None => 0.0,
+            None => add_credit,
         }
     }
 
