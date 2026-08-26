@@ -808,6 +808,8 @@ impl Landlord {
             };
             if szaware && !pos_credit {
                 // this function is marked for eviction
+                self.credits.remove(&reg.fqdn);
+                self.evictions += 1;
                 // we really want to minimize this case, function is on gpu already. estimate can be wrong?
                 self.misses += 1;
                 self.negcredits += 1;
