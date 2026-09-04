@@ -364,7 +364,9 @@ impl QueueingDispatcher {
             EnqueueingPolicy::Landlord
             | EnqueueingPolicy::LRU
             | EnqueueingPolicy::LFU
-            | EnqueueingPolicy::LandlordFixed => {
+            | EnqueueingPolicy::LandlordFixed
+            | EnqueueingPolicy::LandlordWindowReset
+            | EnqueueingPolicy::LandlordWindowClear => {
                 get_landlord(*policy, &cmap, invocation_config, que_map, cont_manager)
             }
             EnqueueingPolicy::Popular

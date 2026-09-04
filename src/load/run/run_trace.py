@@ -351,6 +351,7 @@ worker_kwargs = [
     ("lnd_slowdown_thresh", 6.0, ("invocation", "landlord_config", "slowdown_thresh")),
     ("log_cache_info", False, ("invocation", "landlord_config", "log_cache_info")),
     ("lnd_fixed_mode", False, ("invocation", "landlord_config", "fixed_mode")),
+    ("reset_time", 5, ("invocation", "landlord_config", "window_reset_mins")),
     # greedy
     ("greedy_load", 3.0, ("invocation", "greedy_weight_config", "allow_load")),
     ("greedy_policy", "TopQuarter", ("invocation", "greedy_weight_config", "allow")),

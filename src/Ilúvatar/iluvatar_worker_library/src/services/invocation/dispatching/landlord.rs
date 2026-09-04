@@ -39,6 +39,9 @@ pub struct LandlordConfig {
     #[serde(default)]
     /// mode: fixed, autoscaling
     pub fixed_mode: bool,
+    /// Reset_timer
+    #[serde(default)]
+    pub window_reset_mins: u64,
 }
 
 pub fn get_landlord(
@@ -53,6 +56,8 @@ pub fn get_landlord(
         EnqueueingPolicy::LRU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LRU", cont_manager),
         EnqueueingPolicy::LFU => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LFU", cont_manager),
         EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF", cont_manager),
+        EnqueueingPolicy::LandlordWindowReset => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLWR", cont_manager),
+        EnqueueingPolicy::LandlordWindowClear => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLWC", cont_manager),
         // landlord policy not being used, give dummy basic policy
         _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
     }
@@ -83,6 +88,7 @@ pub struct Landlord {
     negcredits: u32,
     capacitymiss: u32,
     cont_manager: Arc<ContainerManager>,
+    last_window_reset: OffsetDateTime,
 }
 
 impl Landlord {
@@ -121,6 +127,7 @@ impl Landlord {
                 negcredits: 0,
                 capacitymiss: 0,
                 cont_manager,
+                last_window_reset: get_global_clock(&"clock".to_string())?.now(),
             }),
         }
     }
@@ -777,6 +784,28 @@ impl Landlord {
 
     /// Main entry point and landlord caching logic
     fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+
+        if self.cachepol == "LLWR" && self.cfg.window_reset_mins > 0 {
+            let now = self.clock.now();
+            let elapsed = now - self.last_window_reset;
+            if elapsed.whole_seconds() >= (self.cfg.window_reset_mins * 60) as i64 {
+                info!("Window elapsed, resetting all function credits to minimum 0.001");
+                for val in self.credits.values_mut() {
+                    *val = 0.001;
+                }
+                self.last_window_reset = now;
+            }
+        }
+        else if self.cachepol == "LLWC" && self.cfg.window_reset_mins > 0 {
+            let now = self.clock.now();
+            let elapsed = now - self.last_window_reset;
+            if elapsed.whole_seconds() >= (self.cfg.window_reset_mins * 60) as i64 {
+                info!("Window elapsed, clearing landlord cache");
+                self.credits.clear();
+                self.last_window_reset = now;
+            }
+        }
+
         let (mqfq_est, gpu_load) = self.gpu_queue.est_completion_time(reg, tid);
         let (gpu_est, est_err) = self.get_gpu_est(&reg.fqdn, mqfq_est);
         let (raw_cpu_est, cpu_load) = self.cpu_queue.est_completion_time(reg, tid);
@@ -787,7 +816,6 @@ impl Landlord {
         let physical_state = self.cont_manager.container_available(&reg.fqdn, Compute::GPU);
         let ll_present = self.present(&reg.fqdn);
         let _is_disparity = ll_present && matches!(physical_state, ContainerState::Cold);
-
         // if is_disparity {
         //     self.credits.remove(&reg.fqdn); // Remove from landlord cache.
         //     info!(

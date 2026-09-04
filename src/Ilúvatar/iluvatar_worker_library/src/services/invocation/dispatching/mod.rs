@@ -43,6 +43,8 @@ pub enum EnqueueingPolicy {
     /// Landlord-based policy
     Landlord,
     LandlordFixed,
+    LandlordWindowReset,
+    LandlordWindowClear,
     LRU,
     LFU,
     TopAvg,
