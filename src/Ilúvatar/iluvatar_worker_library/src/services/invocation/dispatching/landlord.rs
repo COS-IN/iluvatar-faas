@@ -208,7 +208,7 @@ impl Landlord {
                 let mut cost = self.opp_cost(reg, mqfq_est, gpu_est, cpu_est, est_err, tid);
                 if cost <= 0.0 {
                     // Provide a small positive credit to functions admitted via lottery despite negative opp_cost
-                    cost = 0.001; 
+                    cost = 0.001;
                 }
                 //let cost = self.cmap.avg_gpu_e2e_t(fqdn) - self.cmap.avg_cpu_e2e_t(fqdn);
                 self.credits.insert(reg.fqdn.to_string(), cost);
@@ -305,9 +305,9 @@ impl Landlord {
 
             let frac_rent = total_rent_due / total_load;
 
-            vals.into_iter().for_each(|(fqdn, len, exec)| {
+            vals.into_iter().for_each(|(fqdn, _len, exec)| {
                 if let Some(x) = self.credits.get_mut(&fqdn) {
-                    *x -= len * exec * frac_rent
+                    *x -= exec * frac_rent
                 };
             });
 
@@ -315,16 +315,16 @@ impl Landlord {
             self.credits.retain(|_fqdn, c| *c > 0.0); // we still see functions with negative credit?
 
             // Evict functions whose credits have been depleted by rent
-            // let evictions = &mut self.evictions;
-            // self.credits.retain(|fqdn, c| {
-            //     if *c <= 0.0 {
-            //         *evictions += 1;
-            //         info!(fqdn=%fqdn, remaining_credit=%c, "Eviction (Rent)");
-            //         false
-            //     } else {
-            //         true
-            //     }
-            // });
+            let evictions = &mut self.evictions;
+            self.credits.retain(|fqdn, c| {
+                if *c <= 0.0 {
+                    *evictions += 1;
+                    info!(fqdn=%fqdn, remaining_credit=%c, "Eviction (Rent)");
+                    false
+                } else {
+                    true
+                }
+            });
 
             self.landlog("Post Rent");
         }
