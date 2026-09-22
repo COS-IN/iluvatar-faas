@@ -2,6 +2,7 @@ use crate::services::containers::eviction::EvictionPolicy;
 use crate::services::invocation::dispatching::greedy_weight::GreedyWeightConfig;
 use crate::services::invocation::dispatching::{landlord::LandlordConfig, EnqueueingPolicy};
 use crate::services::invocation::dispatching::epsilon_greedy::EpsilonGreedyConfig;
+use crate::services::invocation::dispatching::tinylfu::TinyLfuConfig;
 use crate::services::{containers::docker::DockerConfig, invocation::queueing::gpu_mqfq::MqfqConfig};
 use iluvatar_library::types::Compute;
 use iluvatar_library::{
@@ -200,10 +201,10 @@ pub struct InvocationConfig {
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
     pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
-    // #[serde(default)]
     // pub weighted_random_config: WeightedRandomConfig,
     pub weighted_random_config: Option<Arc<WeightedRandomConfig>>,
     pub epsilon_greedy_config: Option<Arc<EpsilonGreedyConfig>>,
+    pub tinylfu_config: Option<Arc<TinyLfuConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {

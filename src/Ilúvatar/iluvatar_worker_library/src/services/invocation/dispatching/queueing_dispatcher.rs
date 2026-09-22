@@ -3,7 +3,7 @@ use crate::services::invocation::dispatching::greedy_weight::GreedyWeights;
 use crate::services::invocation::dispatching::mice::Mice;
 use crate::services::invocation::dispatching::weighted_random::WeightedRandom;
 use crate::services::invocation::dispatching::{
-    landlord::get_landlord, popular::get_popular, epsilon_greedy::EpsilonGreedy, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
+    landlord::get_landlord, popular::get_popular, epsilon_greedy::EpsilonGreedy, tinylfu::TinyLfu, EnqueueingPolicy, QueueMap, NO_ESTIMATE,
 };
 #[cfg(feature = "power_cap")]
 use crate::services::invocation::energy_limiter::EnergyLimiter;
@@ -390,6 +390,11 @@ impl QueueingDispatcher {
             EnqueueingPolicy::EpsilonGreedy => Ok(Arc::new(EpsilonGreedy::new(
                 cmap,
                 &invocation_config.epsilon_greedy_config,
+                que_map,
+            ))),
+            EnqueueingPolicy::TinyLFU => Ok(Arc::new(TinyLfu::new(
+                cmap,
+                &invocation_config.tinylfu_config,
                 que_map,
             ))),
         }

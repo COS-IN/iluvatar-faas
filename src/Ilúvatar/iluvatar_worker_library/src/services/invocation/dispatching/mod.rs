@@ -9,6 +9,7 @@ pub mod landlord;
 pub mod popular;
 pub mod queueing_dispatcher;
 pub mod weighted_random;
+pub mod tinylfu;
 mod mice;
 
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,6 +48,7 @@ pub enum EnqueueingPolicy {
     LandlordWindowClear,
     LRU,
     LFU,
+    TinyLFU,
     TopAvg,
     Popular,
     PopularEstTimeDispatch,
