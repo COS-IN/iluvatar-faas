@@ -46,6 +46,7 @@ pub enum EnqueueingPolicy {
     LandlordFixed,
     LandlordWindowReset,
     LandlordWindowClear,
+    LandlordDynamicConcurrency,
     LRU,
     LFU,
     TinyLFU,

@@ -352,6 +352,9 @@ worker_kwargs = [
     ("log_cache_info", False, ("invocation", "landlord_config", "log_cache_info")),
     ("lnd_fixed_mode", False, ("invocation", "landlord_config", "fixed_mode")),
     ("reset_time", 5, ("invocation", "landlord_config", "window_reset_mins")),
+    ("lnd_low_load_concurrency", 1, ("invocation", "landlord_config", "low_load_concurrency")),
+    ("lnd_high_load_concurrency", 5, ("invocation", "landlord_config", "high_load_concurrency")),
+    ("lnd_queue_length_threshold", 10, ("invocation", "landlord_config", "queue_length_threshold")),
     # greedy
     ("greedy_load", 3.0, ("invocation", "greedy_weight_config", "allow_load")),
     ("greedy_policy", "TopQuarter", ("invocation", "greedy_weight_config", "allow")),

@@ -286,6 +286,12 @@ impl ContainerManager {
         self.cpu_containers.len() + self.gpu_containers.len()
     }
 
+    pub fn set_gpu_concurrency_limit(&self, limit: u32) {
+        if let Some(gpu_resources) = &self.gpu_resources {
+            gpu_resources.set_concurrency_limit(limit);
+        }
+    }
+
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Not a guarantee it will be available
     pub fn container_available(&self, fqdn: &str, compute: Compute) -> ContainerState {

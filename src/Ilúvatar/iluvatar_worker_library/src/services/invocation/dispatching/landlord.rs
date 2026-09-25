@@ -42,6 +42,12 @@ pub struct LandlordConfig {
     /// Reset_timer
     #[serde(default)]
     pub window_reset_mins: u64,
+    #[serde(default)]
+    pub low_load_concurrency: Option<u32>,
+    #[serde(default)]
+    pub high_load_concurrency: Option<u32>,
+    #[serde(default)]
+    pub queue_length_threshold: Option<usize>,
 }
 
 pub fn get_landlord(
@@ -58,6 +64,7 @@ pub fn get_landlord(
         EnqueueingPolicy::LandlordFixed => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLF", cont_manager),
         EnqueueingPolicy::LandlordWindowReset => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLWR", cont_manager),
         EnqueueingPolicy::LandlordWindowClear => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLWC", cont_manager),
+        EnqueueingPolicy::LandlordDynamicConcurrency => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LLDC", cont_manager),
         // landlord policy not being used, give dummy basic policy
         _ => LLWrap::boxed(cmap, &invocation_config.landlord_config, que_map, "LL", cont_manager),
     }
@@ -784,6 +791,25 @@ impl Landlord {
 
     /// Main entry point and landlord caching logic
     fn choose(&mut self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (Compute, f64, f64) {
+        if self.cachepol == "LLDC" {
+            if let (Some(low), Some(high), Some(thresh)) = (
+                self.cfg.low_load_concurrency,
+                self.cfg.high_load_concurrency,
+                self.cfg.queue_length_threshold,
+            ) {
+                let mut total_len = 0;
+                if let Some(mqfq) = self.gpu_queue.expose_mqfq() {
+                    for flow in mqfq.iter() {
+                        total_len += flow.value().queue.len();
+                    }
+                }
+                if total_len > thresh {
+                    self.cont_manager.set_gpu_concurrency_limit(high);
+                } else {
+                    self.cont_manager.set_gpu_concurrency_limit(low);
+                }
+            }
+        }
 
         if self.cachepol == "LLWR" && self.cfg.window_reset_mins > 0 {
             let now = self.clock.now();

@@ -217,6 +217,7 @@ struct GpuMetadata {
     pub device_allocated_memory: RwLock<MemSizeMb>,
     pub num_structs: u32,
     pub max_running: u32,
+    pub dynamic_max_running: std::sync::atomic::AtomicU32,
     pub sem: Arc<Semaphore>,
 }
 impl GpuMetadata {
@@ -232,6 +233,7 @@ impl GpuMetadata {
             hardware_memory_mb: memory_mb,
             num_structs: structs.len() as u32,
             max_running: sem.available_permits() as u32,
+            dynamic_max_running: std::sync::atomic::AtomicU32::new(u32::MAX),
             sem,
             hardware_id,
             device_allocated_memory: RwLock::new(0),
@@ -533,6 +535,7 @@ impl GpuResourceTracker {
                 hardware_memory_mb: memory_mb,
                 num_structs: gpu_structs.len() as u32,
                 max_running: sem.available_permits() as u32,
+                dynamic_max_running: std::sync::atomic::AtomicU32::new(u32::MAX),
                 sem,
                 device_allocated_memory: RwLock::new(0),
             };
@@ -736,12 +739,18 @@ impl GpuResourceTracker {
                 let gpu_hardware_id = gpu.gpu_hardware_id;
                 if limit == 0 {
                     return match self.gpu_metadata.get(&gpu_hardware_id) {
-                        Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                            Ok(p) => {
-                                self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
-                                Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                            },
-                            Err(e) => Err(e),
+                        Some(val) => {
+                            let dynamic_max = val.dynamic_max_running.load(std::sync::atomic::Ordering::Relaxed);
+                            if dynamic_max < u32::MAX && self.status_info.read()[gpu_hardware_id as usize].num_running >= dynamic_max {
+                                return Err(tokio::sync::TryAcquireError::NoPermits);
+                            }
+                            match val.sem.clone().try_acquire_many_owned(1) {
+                                Ok(p) => {
+                                    self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                                    Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                                },
+                                Err(e) => Err(e),
+                            }
                         },
                         None => {
                             error!(tid=tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
@@ -754,19 +763,25 @@ impl GpuResourceTracker {
                     if gpu_stat[gpu_hardware_id as usize].est_utilization_gpu <= limit as f64 {
                         drop(gpu_stat);
                         return match self.gpu_metadata.get(&gpu_hardware_id) {
-                            Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                                Ok(p) => {
-                                    let mut gpu_stat = self.status_info.write();
-                                    let stat = &mut gpu_stat[gpu_hardware_id as usize];
-                                    stat.est_utilization_gpu += if stat.num_running > 0 {
-                                        stat.est_utilization_gpu / stat.num_running as f64
-                                    } else {
-                                        50.0
-                                    };
-                                    stat.num_running += 1;
-                                    Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                                },
-                                Err(e) => Err(e),
+                            Some(val) => {
+                                let dynamic_max = val.dynamic_max_running.load(std::sync::atomic::Ordering::Relaxed);
+                                if dynamic_max < u32::MAX && self.status_info.read()[gpu_hardware_id as usize].num_running >= dynamic_max {
+                                    return Err(tokio::sync::TryAcquireError::NoPermits);
+                                }
+                                match val.sem.clone().try_acquire_many_owned(1) {
+                                    Ok(p) => {
+                                        let mut gpu_stat = self.status_info.write();
+                                        let stat = &mut gpu_stat[gpu_hardware_id as usize];
+                                        stat.est_utilization_gpu += if stat.num_running > 0 {
+                                            stat.est_utilization_gpu / stat.num_running as f64
+                                        } else {
+                                            50.0
+                                        };
+                                        stat.num_running += 1;
+                                        Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                                    },
+                                    Err(e) => Err(e),
+                                }
                             },
                             None => {
                                 error!(tid=tid, uuid=%gpu.gpu_uuid, private_id=gpu_hardware_id, "Tried to acquire permit for unknown GPU");
@@ -799,12 +814,18 @@ impl GpuResourceTracker {
                 }
             }
             match self.gpu_metadata.get(&gpu_hardware_id) {
-                Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                    Ok(p) => {
-                        self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
-                        Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
-                    },
-                    Err(e) => Err(e),
+                Some(val) => {
+                    let dynamic_max = val.dynamic_max_running.load(std::sync::atomic::Ordering::Relaxed);
+                    if dynamic_max < u32::MAX && self.status_info.read()[gpu_hardware_id as usize].num_running >= dynamic_max {
+                        return Err(tokio::sync::TryAcquireError::NoPermits);
+                    }
+                    match val.sem.clone().try_acquire_many_owned(1) {
+                        Ok(p) => {
+                            self.status_info.write()[gpu_hardware_id as usize].num_running += 1;
+                            Ok(GpuToken::new(p, gpu_hardware_id, tid.clone(), self))
+                        },
+                        Err(e) => Err(e),
+                    }
                 },
                 None => Err(tokio::sync::TryAcquireError::NoPermits),
             }
@@ -823,13 +844,18 @@ impl GpuResourceTracker {
             drop(gpu_stat);
             if let Some(gpu_hardware_id) = gpu_hardware_id {
                 match self.gpu_metadata.get(&(gpu_hardware_id as u32)) {
-                    Some(val) => match val.sem.clone().try_acquire_many_owned(1) {
-                        Ok(p) => {
-                            let mut gpu_stat = self.status_info.write();
-                            let stat: &mut GpuStatus = &mut gpu_stat[gpu_hardware_id];
-                            stat.est_utilization_gpu += if stat.num_running > 0 {
-                                stat.est_utilization_gpu / stat.num_running as f64
-                            } else {
+                    Some(val) => {
+                        let dynamic_max = val.dynamic_max_running.load(std::sync::atomic::Ordering::Relaxed);
+                        if dynamic_max < u32::MAX && self.status_info.read()[gpu_hardware_id as usize].num_running >= dynamic_max {
+                            return Err(tokio::sync::TryAcquireError::NoPermits);
+                        }
+                        match val.sem.clone().try_acquire_many_owned(1) {
+                            Ok(p) => {
+                                let mut gpu_stat = self.status_info.write();
+                                let stat: &mut GpuStatus = &mut gpu_stat[gpu_hardware_id];
+                                stat.est_utilization_gpu += if stat.num_running > 0 {
+                                    stat.est_utilization_gpu / stat.num_running as f64
+                                } else {
                                 50.0
                             };
                             stat.num_running += 1;
@@ -1180,6 +1206,12 @@ impl GpuResourceTracker {
 
     pub fn get_free_mem(&self, gpu: &GPU) -> MemSizeMb {
         self.get_free_mem_by_id(gpu.gpu_hardware_id)
+    }
+
+    pub fn set_concurrency_limit(&self, limit: u32) {
+        for mut meta in self.gpu_metadata.iter_mut() {
+            meta.dynamic_max_running.store(limit, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 }
 impl Drop for GpuResourceTracker {
