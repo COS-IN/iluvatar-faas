@@ -304,6 +304,9 @@ impl CpuQueueingInvoker {
     /// `true` means the invocation was already run successfully
     async fn bypassing_invoke(&self, item: &Arc<EnqueuedInvocation>) -> Result<bool> {
         info!(tid = item.tid, "Bypassing internal invocation starting");
+        if self.cpu.fine_scheduling_enabled() {
+            return Ok(false);
+        }
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now();
         let ctr_lock = match self
@@ -368,9 +371,9 @@ impl CpuQueueingInvoker {
         };
 
         self.cold_starting.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.cpu
-            .cgroup_assigned_to_function(ctr_lock.container.cgroup_id(), &item.tid, item.registration.clone());
+            .cgroup_assigned_to_function(ctr_lock.container.cgroup_id(), &item.tid, item.registration.clone())?;
+        self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = invoke_on_container(
             &item.registration,
             &item.json_args,

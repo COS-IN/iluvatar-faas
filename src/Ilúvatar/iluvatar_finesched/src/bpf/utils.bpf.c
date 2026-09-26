@@ -5,9 +5,9 @@ char DOCKER_CGROUP_PREFIX[MAX_PATH] = "docker/";
 
 ////////////////////////////
 // Custom Kfuncs Declarations
-u64 scx_bpf_task_ip(struct task_struct *p) __ksym;
-void scx_bpf_switch_to_scx(struct task_struct *p) __ksym;
-void scx_bpf_switch_to_normal(struct task_struct *p) __ksym;
+u64 scx_bpf_task_ip(struct task_struct *p) __ksym __weak;
+void scx_bpf_switch_to_scx(struct task_struct *p) __ksym __weak;
+void scx_bpf_switch_to_normal(struct task_struct *p) __ksym __weak;
 u32 bpf_cpumask_first_and(const struct cpumask *src1, const struct cpumask *src2) __ksym;
 
 ////////////////////////////
@@ -537,7 +537,7 @@ static __noinline void task_stats_task_roundtrip_since_last_wakeup(struct task_s
 }
 
 static __noinline u64 task_stats_task_ip_variance(struct task_struct *p) {
-    if (!p) {
+    if (!p || !bpf_ksym_exists(scx_bpf_task_ip)) {
         return 0;
     }
 
@@ -651,8 +651,10 @@ static __noinline void task_stats_stop_running(struct task_struct *p) {
         }
         
 
-        u64 ip_variance = task_stats_task_ip_variance(p);
-        tctx->busypolling_factor = ip_variance > BUSYPOLLING_IP_VARIANCE_THRESHOLD ? 1 : 3;
+        if (enable_task_ip_monitoring) {
+            u64 ip_variance = task_stats_task_ip_variance(p);
+            tctx->busypolling_factor = ip_variance > BUSYPOLLING_IP_VARIANCE_THRESHOLD ? 1 : 3;
+        }
     }
 }
 
@@ -1190,7 +1192,7 @@ static s32 __noinline create_priority_dsqs_per_cpu() {
     u64 dsqid;
     s32 err = 0;
 
-    bpf_for(cpu, 0, MAX_CPUS) {
+    bpf_for(cpu, 0, nr_cpu_ids_config) {
         numa_node = cpu_to_numanode(cpu);
         dsqid = DSQ_PRIO_PER_CPU_START + cpu;
         err = scx_bpf_create_dsq(dsqid, numa_node);
@@ -1207,14 +1209,14 @@ static s32 __noinline create_priority_dsqs_per_cpu() {
 static s32 __noinline move_from_custom_queue_to_local_dsq(u64 dsqid, s32 task_count) {
     s32 tasks_moved = 0;
 
-    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid)) {
+    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid, 0)) {
         dsq_stats_task_consumed(dsqid);
         tasks_moved += 1;
     }
-    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid)) {
+    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid, 0)) {
         tasks_moved += 1;
     }
-    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid)) {
+    if (task_count != tasks_moved && scx_bpf_dsq_move_to_local(dsqid, 0)) {
         tasks_moved += 1;
     }
 
@@ -1560,6 +1562,10 @@ static __noinline void enqueue_to_per_cpu_custom_dsq(struct task_struct *p) {
 // Task -> SCX switch
 
 static void __noinline switch_to_scx_if_cgroup_exists(struct task_struct *p) {
+
+    if (!bpf_ksym_exists(scx_bpf_switch_to_scx)) {
+        return;
+    }
 
     char *name = get_schedcgroup_name(p);
     if (!name) {

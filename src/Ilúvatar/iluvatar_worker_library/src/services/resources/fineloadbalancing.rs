@@ -83,7 +83,12 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
         if config.testing == 0 {
             // TODO: Blocks forever if scheduler fails to load. Update logic
             // to error.
-            load_bpf_scheduler_async(config.bpf_verbose);
+            load_bpf_scheduler_async(
+                config.bpf_verbose,
+                config.sched_ext_migration == crate::worker_api::worker_config::SchedExtMigrationMethod::Kfunc,
+                config.task_ip_monitoring_enabled(),
+                num_cpus::get() as u32,
+            );
         }
 
         let domains_config = &config.preallocated_groups.groups;

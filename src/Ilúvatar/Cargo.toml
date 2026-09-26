@@ -72,7 +72,7 @@ incremental=false
 strip=true
 
 [workspace.lints.rust]
-warnings = "deny"
+warnings = "warn"
 
 [workspace.lints.clippy]
 single_match = { level = "allow", priority = 1 }

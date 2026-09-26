@@ -27,6 +27,9 @@ char _license[] SEC("license") = "GPL";
 
 bool cpu_boost_config = false;
 bool enable_timer_callback = false;
+bool use_switch_kfunc = true;
+bool enable_task_ip_monitoring = true;
+u32 nr_cpu_ids_config = MAX_CPUS;
 u32 enqueue_config = SCHED_CONFIG_PRIO_DSQ;
 u64 domains_count = 0;
 u64 last_max_vtime = 0;
@@ -500,7 +503,9 @@ s32 BPF_STRUCT_OPS(finesched_init_task, struct task_struct *p, struct scx_init_t
 
     info("[init_task][%s:%d] task born", p->comm, p->pid);
 
-    switch_to_scx_if_cgroup_exists(p);
+    if (use_switch_kfunc) {
+        switch_to_scx_if_cgroup_exists(p);
+    }
 
     global_stats_task_init(p);
     cgroup_stats_task_init(p);
@@ -551,6 +556,16 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(finesched_init) {
     int err;
 
     info("[init] initializing the tsksz scheduler");
+
+    if (use_switch_kfunc && !bpf_ksym_exists(scx_bpf_switch_to_scx)) {
+        error("[init] scx_bpf_switch_to_scx is unavailable");
+        return -EOPNOTSUPP;
+    }
+
+    if (enable_task_ip_monitoring && !bpf_ksym_exists(scx_bpf_task_ip)) {
+        error("[init] scx_bpf_task_ip is unavailable");
+        return -EOPNOTSUPP;
+    }
 
     if (enable_timer_callback) {
         err = usersched_timer_init();

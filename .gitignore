@@ -2,6 +2,7 @@ src/Ilúvatar/target
 *.log
 __pycache__/*.lock
 **.lock
+!src/Ilúvatar/Cargo.lock
 **__pycache__**
 .idea/
 .vscode/

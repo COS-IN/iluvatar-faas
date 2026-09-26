@@ -5,8 +5,11 @@ use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::StatusConfig;
 use crate::worker_api::worker_config::CPUResourceConfig;
 use crate::worker_api::worker_config::FineLoadBalancingConfig;
+use crate::worker_api::worker_config::SchedExtMigrationMethod;
 use anyhow::bail;
+use anyhow::Context;
 use anyhow::Result;
+use dashmap::DashSet;
 use iluvatar_library::char_map::Chars;
 use iluvatar_library::char_map::Value;
 use iluvatar_library::char_map::WorkerCharMap;
@@ -19,6 +22,7 @@ use iluvatar_library::{bail_error, threading};
 use parking_lot::{Mutex, RwLock};
 use std::fs::read_to_string;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +35,7 @@ lazy_static::lazy_static! {
 }
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
+const SCHED_EXT_POLICY: libc::c_int = 7;
 
 pub struct DomainCpuPermit {
     _cpu_permit: OwnedSemaphorePermit,
@@ -68,6 +73,7 @@ pub struct CpuResourceTracker {
     pub cores: f64,
     load_avg: LoadAvg,
     fineloadbalancing: Option<FineLoadBalancing>,
+    sched_ext_cgroups: DashSet<String>,
 }
 
 impl CpuResourceTracker {
@@ -125,6 +131,7 @@ impl CpuResourceTracker {
             cores: available_cores as f64,
             load_avg,
             fineloadbalancing,
+            sched_ext_cgroups: DashSet::new(),
         });
         if let Some(load_tx) = load_tx {
             load_tx.send(svc.clone())?;
@@ -187,6 +194,59 @@ impl CpuResourceTracker {
             return sem.available_permits();
         }
         self.cores as usize
+    }
+
+    pub fn fine_scheduling_enabled(&self) -> bool {
+        self.fineloadbalancing.is_some()
+    }
+
+    fn cgroup_threads_file(cgroup_id: &str) -> Result<PathBuf> {
+        let candidates = [
+            PathBuf::from("/sys/fs/cgroup").join(cgroup_id).join("cgroup.threads"),
+            PathBuf::from("/sys/fs/cgroup/system.slice")
+                .join(cgroup_id)
+                .join("cgroup.threads"),
+        ];
+
+        candidates
+            .into_iter()
+            .find(|path| path.is_file())
+            .ok_or_else(|| anyhow::anyhow!("Unable to locate cgroup.threads for cgroup '{}'", cgroup_id))
+    }
+
+    fn set_cgroup_sched_ext(&self, cgroup_id: &str) -> Result<()> {
+        if is_simulation() || self.sched_ext_cgroups.contains(cgroup_id) {
+            return Ok(());
+        }
+
+        let threads_file = Self::cgroup_threads_file(cgroup_id)?;
+        let threads = read_to_string(&threads_file)
+            .with_context(|| format!("Failed to read {}", threads_file.display()))?;
+        let sched_param = libc::sched_param { sched_priority: 0 };
+        let mut switched = 0;
+
+        for thread_id in threads.lines() {
+            let thread_id = thread_id
+                .parse::<libc::pid_t>()
+                .with_context(|| format!("Invalid thread ID '{}' in {}", thread_id, threads_file.display()))?;
+            let result = unsafe { libc::sched_setscheduler(thread_id, SCHED_EXT_POLICY, &sched_param) };
+            if result != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    continue;
+                }
+                return Err(error).with_context(|| format!("Failed to move thread {} to SCHED_EXT", thread_id));
+            }
+            switched += 1;
+        }
+
+        if switched == 0 {
+            bail!("No threads found in cgroup '{}'", cgroup_id);
+        }
+
+        self.sched_ext_cgroups.insert(cgroup_id.to_string());
+        debug!(cgroup_id=%cgroup_id, threads=%switched, "[finesched] moved cgroup threads to SCHED_EXT");
+        Ok(())
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
@@ -255,7 +315,12 @@ impl CpuResourceTracker {
         bail!("no domain assigned")
     }
 
-    pub fn cgroup_assigned_to_function(&self, cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+    pub fn cgroup_assigned_to_function(
+        &self,
+        cgroup_id: &str,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+    ) -> Result<()> {
         let fqdn = reg.fqdn.as_str();
         if let Some(fineloadbalancing) = self.fineloadbalancing.as_ref() {
             let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
@@ -264,7 +329,7 @@ impl CpuResourceTracker {
                 Some(entry) => *entry,
                 None => {
                     error!(tid=%tid, "[finesched] no domain found for tid in tid_stats map");
-                    return;
+                    bail!("no fine-scheduling domain found for transaction '{}'", tid);
                 },
             };
 
@@ -276,9 +341,13 @@ impl CpuResourceTracker {
             // TODO: lookup arrival time and push
             let sched_domains = &fineloadbalancing.preallocated_domains;
             sched_domains.update_cgroup_chrs(domain_id, timestamp_epoch, dur_ms, 0, cgroup_id);
+            if fineloadbalancing.config.sched_ext_migration == SchedExtMigrationMethod::Syscall {
+                self.set_cgroup_sched_ext(cgroup_id)?;
+            }
 
             debug!( tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, timestamp_epoch=%timestamp_epoch, domain_id=%domain_id, "[finesched] domain assigned to function cgroup");
         }
+        Ok(())
     }
 
     pub fn cgroup_released_for_function(&self, cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {

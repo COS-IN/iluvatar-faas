@@ -234,9 +234,31 @@ pub struct FineLoadBalancingConfig {
     /// verbose logs from bpf skeleton load
     pub bpf_verbose: u8,
 
+    /// Mechanism used to move function tasks into SCHED_EXT.
+    #[serde(default)]
+    pub sched_ext_migration: SchedExtMigrationMethod,
+
+    /// Collect instruction-pointer variance for busy-polling detection.
+    #[serde(default)]
+    pub task_ip_monitoring: Option<bool>,
+
     /// verbose logs from bpf skeleton load
     #[serde(default)]
     pub testing: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SchedExtMigrationMethod {
+    #[default]
+    Kfunc,
+    Syscall,
+}
+
+impl FineLoadBalancingConfig {
+    pub fn task_ip_monitoring_enabled(&self) -> bool {
+        self.task_ip_monitoring.unwrap_or(true)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

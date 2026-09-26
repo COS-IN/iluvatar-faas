@@ -87,7 +87,13 @@ fn attach_perf_hw_cycles_event<'a>(skel: &mut BpfSkel<'a>) -> Result<Vec<Link>> 
     Ok(perf_links)
 }
 
-fn load_bpf_scheduler(verbose: u8, open_object: &mut MaybeUninit<OpenObject>) -> Result<(Link, BpfSkel, Vec<Link>)> {
+fn load_bpf_scheduler(
+    verbose: u8,
+    use_switch_kfunc: bool,
+    task_ip_monitoring: bool,
+    nr_cpu_ids: u32,
+    open_object: &mut MaybeUninit<OpenObject>,
+) -> Result<(Link, BpfSkel, Vec<Link>)> {
     // Increase MEMLOCK size since the BPF scheduler might use
     // more than the current limit
     try_set_rlimit_infinity();
@@ -97,8 +103,10 @@ fn load_bpf_scheduler(verbose: u8, open_object: &mut MaybeUninit<OpenObject>) ->
     skel_builder.obj_builder.debug(verbose > 0);
     let mut skel = scx_ops_open!(skel_builder, open_object, finesched_ops, None)?;
 
-    // init any globals for the bpf scheduler here
-    // none needed at the moment - can set cpu later
+    let data = skel.maps.data_data.as_deref_mut().context("BPF .data map is unavailable")?;
+    data.use_switch_kfunc = use_switch_kfunc;
+    data.enable_task_ip_monitoring = task_ip_monitoring;
+    data.nr_cpu_ids_config = nr_cpu_ids;
 
     // reuse the pinned map
     assert!(reuse_pinned_map(&mut skel.maps.gMap, SCHED_GROUP_MAP_PATH));
@@ -108,7 +116,11 @@ fn load_bpf_scheduler(verbose: u8, open_object: &mut MaybeUninit<OpenObject>) ->
     // load the scheduler
     let mut skel = scx_ops_load!(skel, finesched_ops, uei)?;
 
-    let perf_hw_cycles_links = attach_perf_hw_cycles_event(&mut skel).unwrap();
+    let perf_hw_cycles_links = if task_ip_monitoring {
+        attach_perf_hw_cycles_event(&mut skel)?
+    } else {
+        Vec::new()
+    };
 
     // Attach.
     let struct_ops = scx_ops_attach!(skel, finesched_ops)?;
@@ -117,7 +129,12 @@ fn load_bpf_scheduler(verbose: u8, open_object: &mut MaybeUninit<OpenObject>) ->
 }
 
 // TODO: make this function idempotent
-pub fn load_bpf_scheduler_async(verbose: u8) -> (Arc<AtomicBool>, JoinHandle<()>) {
+pub fn load_bpf_scheduler_async(
+    verbose: u8,
+    use_switch_kfunc: bool,
+    task_ip_monitoring: bool,
+    nr_cpu_ids: u32,
+) -> (Arc<AtomicBool>, JoinHandle<()>) {
     let launched = Arc::new(AtomicBool::new(false));
     let launched_clone = launched.clone();
     let shutdown = Arc::new(AtomicBool::new(false));
@@ -127,8 +144,14 @@ pub fn load_bpf_scheduler_async(verbose: u8) -> (Arc<AtomicBool>, JoinHandle<()>
         // load the bpf scheduler
         // output any debug info during load
         let mut open_object = MaybeUninit::uninit();
-        let (struct_ops, skel, perf_hw_cycles_links) =
-            load_bpf_scheduler(verbose, &mut open_object).unwrap();
+        let (struct_ops, skel, perf_hw_cycles_links) = load_bpf_scheduler(
+            verbose,
+            use_switch_kfunc,
+            task_ip_monitoring,
+            nr_cpu_ids,
+            &mut open_object,
+        )
+        .unwrap();
         launched_clone.store(true, Ordering::Relaxed);
         loop {
             if shutdown.load(Ordering::Relaxed) {
