@@ -13,6 +13,13 @@
 
 * TODO
 
+- [-] Run a simple trace locally (SEBS?), see what v-020 canonical is.
+  - [X] Port the SEBS runners
+  - [-] Workerlog parsing
+  - [ ] Cpu-sched performance profiling 
+  - [ ] Compare the sched perf with cfs, sanity check
+- [X] Recap previous changes. Kfunc optional.
+- [ ] Work conservation analysis and bounding? extra wait while a cpu was available 
 
 
 

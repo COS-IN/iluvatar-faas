@@ -512,7 +512,7 @@ impl ContainerIsolationService for DockerIsolation {
             match self.get_logs(container.container_id(), tid).await {
                 Ok((_out, err)) => {
                     // stderr will have container startup magic string
-                    if err.contains("MGK_GUN_READY_KMG") {
+                    if err.contains("MGK_GUN_READY_KMG") || err.contains("Booting worker with pid") {
                         break;
                     }
                 },

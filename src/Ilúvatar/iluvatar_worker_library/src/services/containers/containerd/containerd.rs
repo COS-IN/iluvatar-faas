@@ -1013,7 +1013,7 @@ impl ContainerIsolationService for ContainerdIsolation {
                     }
                 }
             }
-            if start.elapsed() >= Duration::from_secs(timeout_ms) {
+            if start.elapsed() >= Duration::from_millis(timeout_ms) {
                 let stdout = self.read_stdout(container, tid).await;
                 let stderr = self.read_stderr(container, tid).await;
                 bail_error!(
