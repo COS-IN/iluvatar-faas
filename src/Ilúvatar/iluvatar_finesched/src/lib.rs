@@ -10,6 +10,11 @@ pub use hashmaps::GMAP;
 pub use hashmaps::SCHED_GROUP_MAP_PATH;
 pub use hashmaps::SCHED_GROUP_STATS_MAP_PATH;
 
+mod core_metrics;
+pub use core_metrics::CoreMetricSnapshot;
+pub use core_metrics::CoreMetricsReader;
+pub use core_metrics::CORE_METRICS_MAP_PATH;
+
 mod hashmaps_safe;
 pub use hashmaps_safe::SharedMapsDummy;
 pub use hashmaps_safe::SharedMapsRef;
@@ -22,6 +27,7 @@ pub use bpf_skel::bpf_fsched;
 pub mod bpf_intf;
 pub use bpf_intf::consts_RESERVED_GID_SWITCH_BACK;
 pub use bpf_intf::CgroupChrs;
+pub use bpf_intf::CoreSchedMetrics;
 pub use bpf_intf::SchedGroupChrs;
 pub use bpf_intf::SchedGroupID;
 pub use bpf_intf::SchedGroupStats;

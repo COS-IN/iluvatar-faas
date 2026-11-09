@@ -100,12 +100,29 @@ struct {
     __uint(max_entries, 1);
 } cpu_ctx_stor SEC(".maps");
 
+// Userspace-readable per-core metrics. This is a regular ARRAY rather than a
+// PERCPU_ARRAY because each key already represents one logical CPU.
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, u32);
+    __type(value, CoreSchedMetrics_t);
+    __uint(max_entries, MAX_CPUS);
+} coreMetrics SEC(".maps");
+
 /*
  * Return a CPU context.
  */
 __always_inline struct cpu_ctx *try_lookup_cpu_ctx(s32 cpu) {
     const u32 idx = 0;
     return bpf_map_lookup_percpu_elem(&cpu_ctx_stor, &idx, cpu);
+}
+
+__always_inline CoreSchedMetrics_t *try_lookup_core_metrics(s32 cpu) {
+    if (cpu < 0 || cpu >= MAX_CPUS) {
+        return NULL;
+    }
+    u32 key = cpu;
+    return bpf_map_lookup_elem(&coreMetrics, &key);
 }
 
 /*
@@ -434,6 +451,7 @@ void BPF_STRUCT_OPS(finesched_dispatch, s32 cpu, struct task_struct *prev) {
 
     move_from_per_cpu_custom_to_local_dsq(cpu, 1);
     move_from_custom_queue_to_local_dsq(DSQ_GLOBAL_Q_ID, 1);
+    refresh_core_metrics(cpu);
 }
 
 void BPF_STRUCT_OPS(finesched_set_cpumask, struct task_struct *p, const struct cpumask *cpumask) {
@@ -442,9 +460,13 @@ void BPF_STRUCT_OPS(finesched_set_cpumask, struct task_struct *p, const struct c
     task_stats_task_mask_updated(p);
 }
 
-void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) { task_stats_start_running(p); }
+void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) {
+    task_stats_start_running(p);
+    refresh_core_metrics(bpf_get_smp_processor_id());
+}
 void BPF_STRUCT_OPS(finesched_stopping, struct task_struct *p, bool runnable) {
     task_stats_stop_running(p);
+    refresh_core_metrics(bpf_get_smp_processor_id());
 }
 void BPF_STRUCT_OPS(finesched_quiescent, struct task_struct *p, u64 deq_flags) {
     task_stats_sleeping(p);
@@ -536,6 +558,7 @@ void BPF_STRUCT_OPS(finesched_update_idle, s32 cpu, bool idle) {
             }
         }
     }
+    refresh_core_metrics(cpu);
 }
 
 // Initialize the scheduling class.

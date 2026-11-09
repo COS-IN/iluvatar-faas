@@ -6,6 +6,7 @@ use crate::worker_api::worker_config::FineLoadBalancingConfig;
 use anyhow::bail;
 use anyhow::Result;
 use iluvatar_finesched::load_bpf_scheduler_async;
+use iluvatar_finesched::CoreMetricsReader;
 use iluvatar_finesched::PreAllocatedGroups;
 use iluvatar_finesched::SchedGroupID;
 use iluvatar_finesched::SharedMapsDummy;
@@ -16,6 +17,7 @@ use iluvatar_library::char_map::Value;
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
 use std::sync::atomic::AtomicU32;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -23,6 +25,7 @@ use std::sync::Weak;
 use tokio::sync::Notify;
 use tracing::debug;
 use tracing::error;
+use tracing::warn;
 
 pub trait LoadBalancingPolicyTrait {
     fn assign_domain_to_function_request(
@@ -55,6 +58,9 @@ pub struct FineLoadBalancingStruct {
     pub system_domains: ArcVec<Domain>,
     pub stats: FineLoadBalancingStats,
     pub lbpolicy: LoadBalancingPolicy,
+
+    core_metrics_reader: Option<CoreMetricsReader>,
+    core_metrics_debug_counter: AtomicU64,
 
     pub domain_operation_lock: Mutex<bool>,
     pub domain_release_signal: Arc<Notify>,
@@ -89,6 +95,22 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 config.task_ip_monitoring_enabled(),
             );
         }
+
+        let core_metrics_reader = if config.core_metrics_debug_every == 0 || config.testing != 0 {
+            None
+        } else {
+            match CoreMetricsReader::open() {
+                Ok(reader) => Some(reader),
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        sample_every = config.core_metrics_debug_every,
+                        "[finesched][core-metrics] diagnostic disabled because the metrics reader could not be opened"
+                    );
+                    None
+                },
+            }
+        };
 
         let domains_config = &config.preallocated_groups.groups;
         let domain_count = domains_config.len();
@@ -183,10 +205,87 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 stats: Default::default(),
                 lbpolicy,
 
+                core_metrics_reader,
+                core_metrics_debug_counter: AtomicU64::new(0),
+
                 domain_operation_lock: Mutex::new(false),
                 domain_release_signal: Arc::new(Notify::new()),
             }
         })
+    }
+}
+
+impl FineLoadBalancingStruct {
+    /// Emit a low-rate diagnostic for a core in the assigned domain. Samples
+    /// rotate through the domain's CPUs to avoid a random-number generator in
+    /// the invocation path while still covering every core over time.
+    pub(crate) fn maybe_log_core_metrics(&self, tid: &TransactionId, fqdn: &str, domain_id: SchedGroupID) {
+        let sample_every = self.config.core_metrics_debug_every;
+        if sample_every == 0 {
+            return;
+        }
+
+        let assignment_ordinal = self.core_metrics_debug_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if assignment_ordinal % sample_every != 0 {
+            return;
+        }
+
+        let Some(reader) = self.core_metrics_reader.as_ref() else {
+            return;
+        };
+        let Some(group) = self.preallocated_domains.get_schedgroup(domain_id) else {
+            warn!(
+                tid = %tid,
+                fqdn,
+                domain_id,
+                assignment_ordinal,
+                "[finesched][core-metrics] assigned domain does not exist"
+            );
+            return;
+        };
+        if group.cores.is_empty() {
+            warn!(
+                tid = %tid,
+                fqdn,
+                domain_id,
+                assignment_ordinal,
+                "[finesched][core-metrics] assigned domain has no CPUs"
+            );
+            return;
+        }
+
+        let sample_ordinal = assignment_ordinal / sample_every;
+        let core_index = (sample_ordinal.saturating_sub(1) as usize) % group.cores.len();
+        let cpu = group.cores[core_index];
+        match reader.snapshot(cpu) {
+            Ok(snapshot) => debug!(
+                tid = %tid,
+                fqdn,
+                assignment_ordinal,
+                sample_every,
+                domain_id,
+                cpu = snapshot.cpu,
+                local_dsq_len = snapshot.local_dsq_len,
+                domain_dsq_len = snapshot.domain_dsq_len,
+                dsq_len = snapshot.dsq_len,
+                runnable_load = snapshot.runnable_load,
+                utilization_percent = snapshot.utilization_percent,
+                average_utilization_percent = snapshot.average_utilization_percent,
+                frequency_mhz = snapshot.frequency_mhz,
+                power_watts = ?snapshot.power_watts,
+                pelt_utilization = ?snapshot.pelt_utilization,
+                "[finesched][core-metrics] sampled assigned domain"
+            ),
+            Err(error) => warn!(
+                tid = %tid,
+                fqdn,
+                domain_id,
+                cpu,
+                assignment_ordinal,
+                error = %error,
+                "[finesched][core-metrics] failed to sample assigned domain"
+            ),
+        }
     }
 }
 

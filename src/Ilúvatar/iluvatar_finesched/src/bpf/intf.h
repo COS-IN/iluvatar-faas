@@ -161,6 +161,17 @@ typedef struct SchedGroupStats {
     u64 avg_freq_mhz;
 } SchedGroupStats_t;
 
+// Per-logical-CPU scheduler metrics exported to userspace. Utilization values
+// use MAX_CPU_UTIL as 100%; queue lengths are sampled when sched_ext callbacks
+// run on the CPU.
+typedef struct CoreSchedMetrics {
+    u64 local_dsq_len;
+    u64 domain_dsq_len;
+    u64 runnable;
+    u64 util;
+    u64 avg_util;
+} CoreSchedMetrics_t;
+
 // Group Characteristics Structure
 typedef struct SchedGroupChrs {
     SchedGroupID id;

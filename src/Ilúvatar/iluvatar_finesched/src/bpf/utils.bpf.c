@@ -886,8 +886,18 @@ static void __always_inline stats_update_percpu_util(struct cpu_ctx *c) {
     u64 idle_dur = c->idle_time - c->prev_idle_time;
     c->prev_idle_time = c->idle_time;
 
+    if (c->last_calc_time == 0) {
+        c->last_calc_time = now;
+        c->prev_idle_time = c->idle_time;
+        return;
+    }
+
     u64 wclk = now - c->last_calc_time;
     c->last_calc_time = now;
+
+    if (wclk == 0) {
+        return;
+    }
 
     u64 compute = wclk - idle_dur;
     u64 util;
@@ -1272,6 +1282,29 @@ static __noinline s32 move_from_per_cpu_custom_to_local_dsq(s32 cpu, s32 task_co
 static __inline s32 local_and_custom_dsq_len_for(s32 cpu) {
     return scx_bpf_dsq_nr_queued(SCX_DSQ_LOCAL_ON | cpu) +
            scx_bpf_dsq_nr_queued(DSQ_PRIO_PER_CPU_START + cpu);
+}
+
+// Refresh the userspace-facing metrics for one logical CPU. domain_dsq_len is
+// shared by every CPU in the domain; local_dsq_len is specific to this CPU.
+static void __noinline refresh_core_metrics(s32 cpu) {
+    struct cpu_ctx *cctx = try_lookup_cpu_ctx(cpu);
+    CoreSchedMetrics_t *metrics = try_lookup_core_metrics(cpu);
+    if (!cctx || !metrics) {
+        return;
+    }
+
+    stats_update_percpu_util(cctx);
+
+    s32 local_len = local_and_custom_dsq_len_for(cpu);
+    u64 domain_len = scx_bpf_dsq_nr_queued(cpu_to_domain_highpriority_dsqid(cpu)) +
+                     scx_bpf_dsq_nr_queued(cpu_to_domain_regular_dsqid(cpu));
+    u64 busy = cctx->idle_start == 0 ? 1 : 0;
+
+    metrics->local_dsq_len = local_len > 0 ? local_len : 0;
+    metrics->domain_dsq_len = domain_len;
+    metrics->runnable = metrics->local_dsq_len + domain_len + busy;
+    metrics->util = cctx->util;
+    metrics->avg_util = cctx->avg_util;
 }
 
 static __noinline u64 tasks_enqueued_on_bpfscheduler() {

@@ -1,6 +1,9 @@
 use crate::bpf_fsched::*;
+use crate::pin_map;
 use crate::reuse_pinned_map;
+use crate::rm_pinned_map;
 use crate::topology::SystemTopology;
+use crate::CORE_METRICS_MAP_PATH;
 use crate::CGROUP_MAP_PATH;
 use crate::SCHED_GROUP_MAP_PATH;
 use crate::SCHED_GROUP_STATS_MAP_PATH;
@@ -140,6 +143,11 @@ fn load_bpf_scheduler<'a>(
     // load the scheduler
     let mut skel = scx_ops_load!(skel, finesched_ops, uei)?;
 
+    // coreMetrics is produced by the scheduler rather than the control-plane
+    // hashmap object, so pin it after loading for policy-side readers.
+    rm_pinned_map(CORE_METRICS_MAP_PATH);
+    pin_map(&mut skel.maps.coreMetrics, CORE_METRICS_MAP_PATH);
+
     let perf_hw_cycles_links = if task_ip_monitoring {
         attach_perf_hw_cycles_event(&mut skel, topology)?
     } else {
@@ -191,6 +199,7 @@ pub fn load_bpf_scheduler_async(
                 drop(struct_ops); // kill the bpf scheduler
                 while !uei_exited!(&skel, uei) {}
                 uei_report!(&skel, uei);
+                rm_pinned_map(CORE_METRICS_MAP_PATH);
                 break;
             }
 

@@ -242,6 +242,11 @@ pub struct FineLoadBalancingConfig {
     #[serde(default)]
     pub task_ip_monitoring: Option<bool>,
 
+    /// Log one FineSched core-metric snapshot after every N successful domain
+    /// assignments. A value of 0 disables this temporary diagnostic.
+    #[serde(default)]
+    pub core_metrics_debug_every: u64,
+
     /// verbose logs from bpf skeleton load
     #[serde(default)]
     pub testing: u8,

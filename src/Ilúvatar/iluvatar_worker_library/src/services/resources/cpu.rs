@@ -304,6 +304,8 @@ impl CpuResourceTracker {
                 scheduled_invocations.fetch_add(1, Ordering::Relaxed);
 
                 debug!( tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] domain assigned to function request");
+                drop(_lock);
+                fineloadbalancing.maybe_log_core_metrics(tid, fqdn, domain_id);
                 return Ok(());
             }
             debug!( tid=%tid, fqdn=%fqdn, domain_id=%"None", "[finesched] domain not assigned to function request");
