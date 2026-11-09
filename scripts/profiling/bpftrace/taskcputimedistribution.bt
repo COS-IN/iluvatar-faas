@@ -1,0 +1,30 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+// task being context switched 
+tracepoint:sched:sched_switch
+{
+  $current_time = nsecs(tai) / 1000;
+  $next_pid = args.next_pid;
+  $prev_pid = args.prev_pid;
+
+  @task_start_times[cpu,$next_pid] = $current_time;
+    
+  if( has_key( @task_start_times, (cpu,$prev_pid) ) ) {
+      $task_start_time_on_cpu = @task_start_times[cpu,$prev_pid];
+      delete(@task_start_times, (cpu,$prev_pid) );
+
+      $taskcputime_in_contex = $current_time - $task_start_time_on_cpu;
+      @cputime_dist = hist($taskcputime_in_contex); 
+  }
+}
+
+interval:s:30 {
+  printf("------- %lld ---------,", nsecs(tai));
+  print(@cputime_dist);
+  clear(@task_start_times);
+}

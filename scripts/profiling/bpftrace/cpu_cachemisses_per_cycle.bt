@@ -1,0 +1,38 @@
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 4096;
+}
+
+hardware:cpu-cycles:1e6 {
+    @cpucycles[cpu] = count();
+}
+hardware:cache-misses { @cpucachemisses[cpu] = count(); }
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @cpucachemisses) {
+        $cpu = $kv .0;
+        $cachemisses = (uint32)$kv .1;
+
+        $max_cycles = (uint32)1e6;
+        let $cycles = $max_cycles;
+        if (has_key(@cpucycles, cpu)) {
+            $cycles = (uint32) @cpucycles[cpu];
+        }
+
+        if ($cycles < 10) {
+            // for few cycles efficiency(per_cycle) cannot be determined
+            $cycles = $max_cycles;
+        }
+        $cachemisses_per_cycle = ($cachemisses * 100) / $cycles;
+
+        printf("%d,%d,", $cpu, $cachemisses_per_cycle);
+    }
+
+    clear(@cpucycles);
+    clear(@cpucachemisses);
+
+    printf("\n");
+}

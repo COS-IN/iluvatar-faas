@@ -1,0 +1,46 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+
+fexit:vmlinux:scx_bpf_dsq_nr_queued {
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & (uint64)args.dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xf00;
+    $custom_dsq_type = $custom_dsq_type_mask & (uint64)args.dsq_id;
+    $dsq_type_prio = (uint64)0x400;
+    $dsq_type_reg = (uint64)0x500;
+    $dsq_type_global = (uint64)0x600;
+
+    $custom_dsq_id_mask = (uint64)0xfff;
+    $dsqid = $custom_dsq_id_mask & (uint64)args.dsq_id;
+
+    $dsq_len = (int32)retval;
+
+    if (!$is_local_dsq) {
+        if( $custom_dsq_type >= $dsq_type_prio ){
+            @dsq_len_map[$dsqid] = avg($dsq_len);
+        }
+    }
+}
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @dsq_len_map) {
+        $dsqid = $kv .0;
+        $avg_dsq_len = (uint32)$kv .1;
+
+        printf("%d,%d,", $dsqid, $avg_dsq_len);
+    }
+
+    clear(@dsq_len_map);
+
+    printf("\n");
+}

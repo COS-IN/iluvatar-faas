@@ -1,0 +1,72 @@
+{
+    "110.dynamic-html": {
+        "max": 11,
+        "ts": 85170,
+        "mean_iat": 72.97809330628803
+    },
+    "040.server-reply": {
+        "max": 14,
+        "ts": 158250,
+        "mean_iat": 77.36903225806452
+    },
+    "502.graph-mst": {
+        "max": 17,
+        "ts": 51939,
+        "mean_iat": 180.67939698492464
+    },
+    "503.graph-bfs": {
+        "max": 21,
+        "ts": 141160,
+        "mean_iat": 240.93145161290323
+    },
+    "020.network-benchmark": {
+        "max": 16,
+        "ts": 122010,
+        "mean_iat": 249.21914008321775
+    },
+    "030.clock-synchronization": {
+        "max": 18,
+        "ts": 9245,
+        "mean_iat": 256.86552217453504
+    },
+    "210.thumbnailer": {
+        "max": 19,
+        "ts": 8590,
+        "mean_iat": 814.8493150684932
+    },
+    "120.uploader": {
+        "max": 14,
+        "ts": 143566,
+        "mean_iat": 2966.133333333333
+    },
+    "311.compression": {
+        "max": 16,
+        "ts": 124771,
+        "mean_iat": 5278.741935483871
+    },
+    "010.sleep": {
+        "max": 12,
+        "ts": 134443,
+        "mean_iat": 10812.166666666666
+    },
+    "501.graph-pagerank": {
+        "max": 13,
+        "ts": 177974,
+        "mean_iat": 13529.0
+    },
+    "220.video-processing": {
+        "max": 9,
+        "ts": 161885,
+        "mean_iat": 16853.666666666668
+    },
+    "504.dna-visualisation": {
+        "max": 5,
+        "ts": 134178,
+        "mean_iat": 24332.4
+    },
+    "411.image-recognition": {
+        "max": 1,
+        "ts": 65119,
+        "mean_iat": 49957.0
+    }
+}

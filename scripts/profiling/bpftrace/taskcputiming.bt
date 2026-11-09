@@ -1,0 +1,118 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+// task being enqueued 
+fexit:vmlinux:scx_bpf_dispatch_vtime
+{
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & (uint64)args.dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xfff;
+    $custom_dsq_type = $custom_dsq_type_mask & (uint64)args.dsq_id;
+    $custom_dsq_type = $custom_dsq_type * 10; 
+    // $dsq_type_prio = (uint64)0x400;
+    // $dsq_type_reg = (uint64)0x500;
+    // $dsq_type_global = (uint64)0x600;
+
+    $task = args.p;
+
+    if (!$is_local_dsq) {
+        $pid = $task->pid;
+        $current_time = nsecs(tai);
+
+        @enqueued_tasks[$pid] = ($current_time, $custom_dsq_type);
+    }
+}
+
+// task being enqueued 
+fexit:vmlinux:scx_bpf_dispatch 
+{
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & (uint64)args.dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xfff;
+    $custom_dsq_type = $custom_dsq_type_mask & (uint64)args.dsq_id;
+    $custom_dsq_type = $custom_dsq_type * 10; 
+    // $dsq_type_prio = (uint64)0x400;
+    // $dsq_type_reg = (uint64)0x500;
+    // $dsq_type_global = (uint64)0x600;
+
+    $task = args.p;
+
+    if (!$is_local_dsq) {
+        $pid = $task->pid;
+        $current_time = nsecs(tai);
+
+        @enqueued_tasks[$pid] = ($current_time, $custom_dsq_type);
+    }
+}
+
+// task starting to run on a cpu
+fexit:vmlinux:set_next_task_scx {
+
+    $task = args.p;
+    $pid = $task->pid;
+
+    if( has_key(@enqueued_tasks, $pid) ){
+        $data = @enqueued_tasks[$pid];
+        $insertion_time = $data.0;
+        $task_type = $data.1;
+
+        $current_time = nsecs(tai);
+        $queue_time = $current_time - $insertion_time;
+
+        @executing_tasks[$pid] = ($current_time,$task_type);
+        @task_queue_time_map[$task_type] = avg($queue_time);
+    }
+
+}
+
+// task stopping execution on a cpu
+fexit:vmlinux:put_prev_task_scx {
+
+    $task = args.p;
+    $pid = $task->pid;
+
+    if( has_key(@executing_tasks, $pid) ){
+        $data = @executing_tasks[$pid];
+        $execution_start_time = $data.0;
+        $task_type = $data.1;
+
+        $current_time = nsecs(tai);
+        $execution_time = $current_time - $execution_start_time;
+
+        @task_exec_time_map[$task_type] = avg($execution_time);
+    }
+}
+
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @task_queue_time_map) {
+        $task_type = $kv .0;
+        $task_queue_time = (uint64)$kv .1;
+
+        $task_cpu_time = (uint64)0;
+        if( has_key(@task_exec_time_map, $task_type) ){
+            $task_cpu_time = (uint64)@task_exec_time_map[$task_type];
+        }
+
+        printf("%d,%d,", $task_type, $task_cpu_time);
+    }
+
+    clear(@task_queue_time_map);
+    clear(@task_exec_time_map);
+    clear(@enqueued_tasks);
+    clear(@executing_tasks);
+
+    printf("\n");
+}

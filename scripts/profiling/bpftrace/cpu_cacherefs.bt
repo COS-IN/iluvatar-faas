@@ -1,0 +1,24 @@
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 4096;
+}
+
+hardware:cache-references {
+    @cpucachereferences[cpu] = count();
+}
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @cpucachereferences) {
+        $cpu = $kv .0;
+        $cachereferences = (uint32)$kv .1;
+
+        printf("%d,%d,", $cpu, $cachereferences);
+    }
+
+    clear(@cpucachereferences);
+
+    printf("\n");
+}

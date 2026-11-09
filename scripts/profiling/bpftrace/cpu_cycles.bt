@@ -1,0 +1,20 @@
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 4096;
+}
+
+hardware:cpu-cycles:1e6 { @cpucycles[cpu] = count(); }
+
+interval:s:1 
+{
+    printf("%lld,", nsecs(tai));
+    for ($kv : @cpucycles) {
+        $cpu = $kv.0;
+        $freq = $kv.1;
+        printf("%d,%d,", $cpu, (int32)$freq);
+    }
+    printf("\n");
+    clear(@cpucycles);
+}
+

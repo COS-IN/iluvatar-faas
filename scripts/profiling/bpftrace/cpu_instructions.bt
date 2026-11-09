@@ -1,0 +1,24 @@
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 4096;
+}
+
+hardware:instructions {
+    @cpuinstructions[cpu] = count();
+}
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @cpuinstructions) {
+        $cpu = $kv .0;
+        $instructions = (uint32)$kv .1;
+
+        printf("%d,%d,", $cpu, $instructions);
+    }
+
+    clear(@cpuinstructions);
+
+    printf("\n");
+}

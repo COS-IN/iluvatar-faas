@@ -1,0 +1,41 @@
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+fexit:vmlinux:scx_bpf_task_ip, 
+{
+  $ip = retval;
+  $pid = args.p->pid;
+
+  $prev_ip_mean = (uint64)0;
+  $prev_ip_variance = (uint64)0;
+  $prev_ip_sample_count = (uint64)0;
+  
+  if ( has_key(@task_context,$pid) ) {
+      $prev_data = @task_context[$pid];
+      $prev_ip_mean = $prev_data.0;
+      $prev_ip_variance = $prev_data.1;
+      $prev_ip_sample_count = $prev_data.2;
+  }
+
+  $sample_count = $prev_ip_sample_count + 1;
+
+  $ip_mean = (($prev_ip_mean*$prev_ip_sample_count)+$ip) / $sample_count;
+  
+  $squares_update = (uint64)(((int64)$ip - (int64)$ip_mean)*((int64)$ip - (int64)$prev_ip_mean));
+  $ip_var = (($prev_ip_variance*$prev_ip_sample_count)+$squares_update) / $sample_count;
+
+  $sample_count = $sample_count > 1 ? (uint64)1 : $sample_count;
+  @task_context[$pid] = ($ip_mean,$ip_var,$sample_count);
+
+  @ip_var_dist = hist($ip_var); 
+}
+
+interval:s:30 {
+  printf("------- %lld ---------,", nsecs(tai));
+  print(@ip_var_dist);
+
+  clear(@task_context);
+}

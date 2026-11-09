@@ -1,0 +1,65 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+// task stats waittime on rq 
+tracepoint:sched:sched_stat_wait
+{
+  $pid = args.pid;
+  $waittime = args.delay;
+
+  @task_waittimes[$pid] = $waittime;
+}
+
+
+// task being context switched 
+tracepoint:sched:sched_switch
+{
+  $current_time = nsecs(tai) / 1000;
+  $next_pid = args.next_pid;
+  $prev_pid = args.prev_pid;
+
+  @task_start_times[cpu,$next_pid] = $current_time;
+
+  if( has_key( @task_start_times, (cpu,$prev_pid) ) ) {
+      $task_start_time_on_cpu = @task_start_times[cpu,$prev_pid];
+      delete(@task_start_times, (cpu,$prev_pid) );
+      $taskcputime_in_contex = $current_time - $task_start_time_on_cpu;
+      
+      $task_waittime = (uint64)0;
+      if( has_key( @task_waittimes, $prev_pid ) ) {
+          $task_waittime = @task_waittimes[$prev_pid]; 
+      }
+        
+      $bucket_step = (uint64)2; // 2us
+      $bucket_upper_bound = ($bucket_step<<(17-1)); // 128ms
+
+      $taskcputime_in_contex_bucket = (uint64)0;
+
+      $i = (uint64)1;
+      while ($i <= 17) {
+        $bucket_upper_limit = ($bucket_step<<($i-1));
+        if( $taskcputime_in_contex < $bucket_upper_limit ){
+          $taskcputime_in_contex_bucket = $bucket_upper_limit;
+          break;
+        }
+        $i++
+      }
+
+      if( $taskcputime_in_contex >= $bucket_upper_bound ){
+        $taskcputime_in_contex_bucket = $bucket_upper_bound;
+      }
+
+      @waittimes_buckets[$taskcputime_in_contex_bucket] = avg($task_waittime); 
+  }
+}
+
+interval:s:30 {
+  printf("------- %lld ---------,\n", nsecs(tai));
+  print(@waittimes_buckets);
+  clear(@task_start_times);
+  clear(@task_waittimes);
+}

@@ -1,0 +1,15 @@
+func_name,cold_dur_ms,warm_dur_ms,mem_mb,image_name,compute,isolation,args,args_jsonfile,prewarms
+020.network-benchmark,1707,48,128,docker.io/aarehman/020.network-benchmark-iluvatar-action:latest,CPU,DOCKER,,inputs/020.network-benchmark.json,5
+010.sleep,4639,3016,128,docker.io/aarehman/010.sleep-iluvatar-action:latest,CPU,DOCKER,,inputs/010.sleep.json,4
+030.clock-synchronization,1721,49,128,docker.io/aarehman/030.clock-synchronization-iluvatar-action:latest,CPU,DOCKER,,inputs/030.clock-synchronization.json,5
+040.server-reply,1531,15,128,docker.io/aarehman/040.server-reply-iluvatar-action:latest,CPU,DOCKER,,inputs/040.server-reply.json,7
+411.image-recognition,15341,21227,512,docker.io/aarehman/411.image-recognition-iluvatar-action:latest,CPU,DOCKER,,inputs/411.image-recognition.json,1
+311.compression,2508,1153,256,docker.io/aarehman/311.compression-iluvatar-action:latest,CPU,DOCKER,,inputs/311.compression.json,5
+220.video-processing,8233,5090,512,docker.io/aarehman/220.video-processing-iluvatar-action:latest,CPU,DOCKER,,inputs/220.video-processing.json,4
+210.thumbnailer,1730,148,256,docker.io/aarehman/210.thumbnailer-iluvatar-action:latest,CPU,DOCKER,,inputs/210.thumbnailer.json,5
+501.graph-pagerank,7494,3921,512,docker.io/aarehman/501.graph-pagerank-iluvatar-action:latest,CPU,DOCKER,,inputs/501.graph-pagerank.json,3
+504.dna-visualisation,12762,9899,2048,docker.io/aarehman/504.dna-visualisation-iluvatar-action:latest,CPU,DOCKER,,inputs/504.dna-visualisation.json,3
+502.graph-mst,1575,34,512,docker.io/aarehman/502.graph-mst-iluvatar-action:latest,CPU,DOCKER,,inputs/502.graph-mst.json,7
+503.graph-bfs,1548,47,512,docker.io/aarehman/503.graph-bfs-iluvatar-action:latest,CPU,DOCKER,,inputs/503.graph-bfs.json,5
+110.dynamic-html,1401,14,128,docker.io/aarehman/110.dynamic-html-iluvatar-action:latest,CPU,DOCKER,,inputs/110.dynamic-html.json,7
+120.uploader,2949,663,128,docker.io/aarehman/120.uploader-iluvatar-action:latest,CPU,DOCKER,,inputs/120.uploader.json,6

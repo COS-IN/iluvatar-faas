@@ -1,0 +1,31 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+// task being picked for scheduling  
+fexit:vmlinux:pick_next_task_fair
+{
+  $next_p = retval;
+  $next_se = $next_p->se;
+
+  $task_timeslice = $next_se.slice / 1000;
+  @timeslice_dist = hist($task_timeslice); 
+}
+
+// task being picked for scheduling  
+fexit:vmlinux:pick_next_task_scx
+{
+  $next_p = retval;
+  $next_se = $next_p->scx;
+
+  $task_timeslice = $next_se.slice / 1000;
+  @timeslice_dist = hist($task_timeslice); 
+}
+
+interval:s:30 {
+  printf("------- %lld ---------,", nsecs(tai));
+  print(@timeslice_dist);
+}

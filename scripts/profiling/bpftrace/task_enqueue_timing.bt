@@ -1,0 +1,105 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+BEGIN {
+    $pid = (int32)0;
+    $current_time = nsecs(tai);
+    $custom_dsq_type = (uint64)0;
+
+    @enqueued_tasks[$pid] = ($current_time, $custom_dsq_type);
+}
+
+// task being enqueued 
+fexit:vmlinux:scx_bpf_dispatch, 
+{
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & (uint64)args.dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xfff;
+    $custom_dsq_type = $custom_dsq_type_mask & (uint64)args.dsq_id;
+    $custom_dsq_type = $custom_dsq_type * 10;
+    // $dsq_type_prio = (uint64)0x400;
+    // $dsq_type_reg = (uint64)0x500;
+    // $dsq_type_global = (uint64)0x600;
+
+    $task = args.p;
+
+    if (!$is_local_dsq) {
+        $pid = $task->pid;
+        $current_time = nsecs(tai);
+
+        if (has_key(@enqueued_tasks, $pid)) {
+            $data = @enqueued_tasks[$pid];
+            $last_enqueue_time = $data .0;
+            $task_type = (uint64)$data .1;
+
+            $enqueue_time = $current_time - $last_enqueue_time;
+
+            $enqueue_time_threshold = (uint64)3000000000; // 3secs
+            if ($enqueue_time < $enqueue_time_threshold) {
+                @task_enqueue_time_map[$task_type] = avg($enqueue_time);
+            }
+        }
+
+        @enqueued_tasks[$pid] = ($current_time, $custom_dsq_type);
+    }
+}
+
+fexit:vmlinux:scx_bpf_dispatch_vtime 
+{
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & (uint64)args.dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xfff;
+    $custom_dsq_type = $custom_dsq_type_mask & (uint64)args.dsq_id;
+    $custom_dsq_type = $custom_dsq_type * 10;
+    // $dsq_type_prio = (uint64)0x400;
+    // $dsq_type_reg = (uint64)0x500;
+    // $dsq_type_global = (uint64)0x600;
+
+    $task = args.p;
+
+    if (!$is_local_dsq) {
+        $pid = $task->pid;
+        $current_time = nsecs(tai);
+
+        if (has_key(@enqueued_tasks, $pid)) {
+            $data = @enqueued_tasks[$pid];
+            $last_enqueue_time = $data .0;
+            $task_type = (uint64)$data .1;
+
+            $enqueue_time = $current_time - $last_enqueue_time;
+
+            $enqueue_time_threshold = (uint64)3000000000; // 3secs
+            if ($enqueue_time < $enqueue_time_threshold) {
+                @task_enqueue_time_map[$task_type] = avg($enqueue_time);
+            }
+        }
+
+        @enqueued_tasks[$pid] = ($current_time, $custom_dsq_type);
+    }
+}
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @task_enqueue_time_map) {
+        $task_type = $kv .0;
+        $task_enqueue_time = (uint64)$kv .1;
+
+        printf("%d,%d,", $task_type, $task_enqueue_time);
+    }
+
+    clear(@task_enqueue_time_map);
+    clear(@enqueued_tasks);
+
+    printf("\n");
+}

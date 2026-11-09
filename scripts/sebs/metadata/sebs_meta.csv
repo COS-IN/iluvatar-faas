@@ -1,0 +1,15 @@
+name,image_name,compute,isolation,memory,args,args_jsonfile,prewarms,burst_factor,burst_request_count,burst_count,base_factor
+020.network-benchmark,docker.io/aarehman/020.network-benchmark-iluvatar-action:latest,CPU,DOCKER,128,,inputs/020.network-benchmark.json,10,0.5,0,0,0.5
+030.clock-synchronization,docker.io/aarehman/030.clock-synchronization-iluvatar-action:latest,CPU,DOCKER,128,,inputs/030.clock-synchronization.json,10,0.5,0,0,0.5
+040.server-reply,docker.io/aarehman/040.server-reply-iluvatar-action:latest,CPU,DOCKER,128,,inputs/040.server-reply.json,10,0.5,0,0,0.2
+110.dynamic-html,docker.io/aarehman/110.dynamic-html-iluvatar-action:latest,CPU,DOCKER,128,,inputs/110.dynamic-html.json,10,0.5,0,0,0.2
+502.graph-mst,docker.io/aarehman/502.graph-mst-iluvatar-action:latest,CPU,DOCKER,512,,inputs/502.graph-mst.json,10,0.5,0,0,0.5
+503.graph-bfs,docker.io/aarehman/503.graph-bfs-iluvatar-action:latest,CPU,DOCKER,512,,inputs/503.graph-bfs.json,10,0.5,0,0,0.5
+010.sleep,docker.io/aarehman/010.sleep-iluvatar-action:latest,CPU,DOCKER,128,,inputs/010.sleep.json,10,0.5,0,0,1.0
+311.compression,docker.io/aarehman/311.compression-iluvatar-action:latest,CPU,DOCKER,256,,inputs/311.compression.json,10,0.5,0,0,0.9
+220.video-processing,docker.io/aarehman/220.video-processing-iluvatar-action:latest,CPU,DOCKER,512,,inputs/220.video-processing.json,10,0.5,0,0,1.0
+210.thumbnailer,docker.io/aarehman/210.thumbnailer-iluvatar-action:latest,CPU,DOCKER,256,,inputs/210.thumbnailer.json,10,0.5,0,0,0.7
+504.dna-visualisation,docker.io/aarehman/504.dna-visualisation-iluvatar-action:latest,CPU,DOCKER,2048,,inputs/504.dna-visualisation.json,10,0.5,0,0,1.0
+120.uploader,docker.io/aarehman/120.uploader-iluvatar-action:latest,CPU,DOCKER,128,,inputs/120.uploader.json,10,0.5,0,0,0.8
+501.graph-pagerank,docker.io/aarehman/501.graph-pagerank-iluvatar-action:latest,CPU,DOCKER,512,,inputs/501.graph-pagerank.json,10,0.5,0,0,1.0
+411.image-recognition,docker.io/aarehman/411.image-recognition-iluvatar-action:latest,CPU,DOCKER,512,,inputs/411.image-recognition.json,10,0.5,0,0,1.0

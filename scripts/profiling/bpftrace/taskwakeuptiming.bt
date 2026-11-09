@@ -1,0 +1,69 @@
+
+
+config = {
+    print_maps_on_exit = 0;
+    max_map_keys = 8192;
+}
+
+BEGIN {
+    $pid = (int32)0;
+    $current_time = nsecs(tai);
+    $custom_dsq_type = (uint64)0;
+
+    @awake_tasks[$pid] = ($current_time, $custom_dsq_type);
+}
+
+// task being wokenup / rebalanced 
+fexit:vmlinux:select_task_rq_scx {
+    
+    $task = args.p;
+    $dsq_id = (uint64)$task->scx.ddsp_dsq_id;
+
+    // kernel: ext.h SCX_DSQ_LOCAL_ON = SCX_DSQ_FLAG_BUILTIN | SCX_DSQ_FLAG_LOCAL_ON,
+    $local_dsq_mask = (((uint64)0x1) << 63) | (((uint64)0x1) << 62);
+    $is_local_dsq = ($local_dsq_mask & $dsq_id) == $local_dsq_mask;
+
+    $custom_dsq_type_mask = (uint64)0xfff;
+    $custom_dsq_type = $custom_dsq_type_mask & $dsq_id;
+    $custom_dsq_type = $custom_dsq_type * 10;
+    // $dsq_type_prio = (uint64)0x400;
+    // $dsq_type_reg = (uint64)0x500;
+    // $dsq_type_global = (uint64)0x600;
+
+
+    if (!$is_local_dsq) {
+        $pid = $task->pid;
+        $current_time = nsecs(tai);
+
+        if (has_key(@awake_tasks, $pid)) {
+            $data = @awake_tasks[$pid];
+            $last_awake_time = $data .0;
+            $task_type = (uint64)$data .1;
+
+            $awake_time = $current_time - $last_awake_time;
+
+            $awake_time_threshold = (uint64)3000000000; // 3secs
+            if ($awake_time < $awake_time_threshold) {
+                @task_awake_time_map[$task_type] = avg($awake_time);
+            }
+        }
+
+        @awake_tasks[$pid] = ($current_time, $custom_dsq_type);
+    }
+}
+
+interval:s:1 {
+
+    printf("%lld,", nsecs(tai));
+    for ($kv : @task_awake_time_map) {
+        $task_type = $kv .0;
+        $task_awake_time = (uint64)$kv .1;
+
+        printf("%d,%d,", $task_type, $task_awake_time);
+    }
+
+    clear(@task_awake_time_map);
+    clear(@awake_tasks);
+
+    printf("\n");
+}
