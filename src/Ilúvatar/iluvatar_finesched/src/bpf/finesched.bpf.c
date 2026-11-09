@@ -29,7 +29,10 @@ bool cpu_boost_config = false;
 bool enable_timer_callback = false;
 bool use_switch_kfunc = true;
 bool enable_task_ip_monitoring = true;
-u32 nr_cpu_ids_config = MAX_CPUS;
+u32 nr_cpu_ids_config = 1;
+u32 nr_online_cpus_config = 1;
+u32 last_online_cpu_config = 0;
+CpuTopology_t cpu_topology[MAX_CPUS] = {};
 u32 enqueue_config = SCHED_CONFIG_PRIO_DSQ;
 u64 domains_count = 0;
 u64 last_max_vtime = 0;
@@ -40,19 +43,6 @@ struct GlobalStats {
 struct GlobalStats global_stats;
 
 SchedGroupChrs_t empty_sched_chrs = {0};
-
-private(FINESCHED) struct bpf_cpumask __kptr *cores_inact_grp_mask;
-u8 cores_inact_grp[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
-// u8 cores_inact_grp[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-// 20, 21, 22, 23 };
-
-private(FINESCHED) struct bpf_cpumask __kptr *cpumask_node0;
-u8 cores_node0[] = {0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11,
-                    12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
-
-private(FINESCHED) struct bpf_cpumask __kptr *cpumask_node1;
-u8 cores_node1[] = {24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
-                    36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47};
 
 struct cpucycles_ctx {
     u64 last_timestamp;
@@ -551,8 +541,6 @@ void BPF_STRUCT_OPS(finesched_update_idle, s32 cpu, bool idle) {
 // Initialize the scheduling class.
 s32 BPF_STRUCT_OPS_SLEEPABLE(finesched_init) {
 
-    u32 i;
-    u32 cpu;
     int err;
 
     info("[init] initializing the tsksz scheduler");
@@ -572,10 +560,6 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(finesched_init) {
         if (err)
             return err;
     }
-
-    err = populate_cpumasks();
-    if (err < 0)
-        return err;
 
     err = populate_cpu_to_domain_id_map();
     if (err < 0)

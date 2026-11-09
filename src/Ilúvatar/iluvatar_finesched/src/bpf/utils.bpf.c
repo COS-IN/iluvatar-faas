@@ -3,6 +3,35 @@
 
 char DOCKER_CGROUP_PREFIX[MAX_PATH] = "docker/";
 
+static __always_inline u32 configured_cpu_id_count() {
+    return MAX(1U, MIN(nr_cpu_ids_config, (u32)MAX_CPUS));
+}
+
+static __always_inline u32 configured_online_cpu_count() {
+    return MAX(1U, MIN(nr_online_cpus_config, configured_cpu_id_count()));
+}
+
+static __always_inline bool cpu_is_online(s32 cpu) {
+    if (cpu < 0 || cpu >= configured_cpu_id_count()) {
+        return false;
+    }
+    return (cpu_topology[cpu].flags & CPU_TOPOLOGY_ONLINE) != 0;
+}
+
+static __always_inline bool cpu_is_big(s32 cpu) {
+    if (cpu < 0 || cpu >= configured_cpu_id_count()) {
+        return false;
+    }
+    return (cpu_topology[cpu].flags & CPU_TOPOLOGY_BIG) != 0;
+}
+
+static __always_inline bool cpu_is_little(s32 cpu) {
+    if (cpu < 0 || cpu >= configured_cpu_id_count()) {
+        return false;
+    }
+    return (cpu_topology[cpu].flags & CPU_TOPOLOGY_LITTLE) != 0;
+}
+
 ////////////////////////////
 // Custom Kfuncs Declarations
 u64 scx_bpf_task_ip(struct task_struct *p) __ksym __weak;
@@ -39,7 +68,7 @@ static void dump_cpumask(struct cpumask *bitmask) {
     }
 
     p = buf;
-    bpf_for(cpu, 0, MAX_CPUS) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
 
         if (!(p = MEMBER_VPTR(buf, [p - buf])))
             break;
@@ -61,52 +90,28 @@ static void dump_cpumask(struct cpumask *bitmask) {
     info("[get_sched_cpu_ts] bitmask %s", buf);
 }
 
-#define POPULATE_CPUMASK(mask, core_array)                                                         \
-    do {                                                                                           \
-        err = calloc_cpumask(&mask);                                                               \
-        if (err)                                                                                   \
-            return err;                                                                            \
-        bpf_rcu_read_lock();                                                                       \
-        bpf_for(i, 0, sizeof(core_array) / sizeof(u8)) {                                           \
-            if (mask) {                                                                            \
-                bpf_cpumask_set_cpu(core_array[i], mask);                                          \
-            }                                                                                      \
-        }                                                                                          \
-        bpf_rcu_read_unlock();                                                                     \
-    } while (0)
-
-static __noinline int populate_cpumasks() {
-    int err;
-    int i;
-
-    // Populate mask for Inactive Groups
-    POPULATE_CPUMASK(cores_inact_grp_mask, cores_inact_grp);
-
-    // Populate mask for NUMA Nodes
-    POPULATE_CPUMASK(cpumask_node0, cores_node0);
-    POPULATE_CPUMASK(cpumask_node1, cores_node1);
-
-    return 0;
+static __noinline s32 cpu_to_numanode(s32 cpu) {
+    if (cpu < 0 || cpu >= configured_cpu_id_count()) {
+        return 0;
+    }
+    return cpu_topology[cpu].numa_node >= 0 ? cpu_topology[cpu].numa_node : 0;
 }
-
-static __noinline s32 cpu_to_numanode(s32 cpu) { return cpu < (MAX_CPUS / 2) ? 0 : 1; }
 
 static __noinline int cpumask_to_numanode(struct bpf_cpumask *cpumask) {
 
     int r = -1;
 
-    bpf_rcu_read_lock();
-
     if (!cpumask) {
         return -1;
     }
 
-    if (cpumask_node0 && bpf_cpumask_intersects(cpumask, cpumask_node0)) {
-        r = 0;
-    } else if (cpumask_node1 && bpf_cpumask_intersects(cpumask, cpumask_node1)) {
-        r = 1;
+    s32 cpu;
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (cpu_is_online(cpu) && bpf_cpumask_test_cpu(cpu, (struct cpumask *)cpumask)) {
+            r = cpu_to_numanode(cpu);
+            break;
+        }
     }
-    bpf_rcu_read_unlock();
     return r;
 }
 
@@ -125,8 +130,8 @@ static __noinline long callback_gmap_populate_cpu_to_dsq_iter(struct bpf_map *ma
     int dsqid = DSQ_PRIO_GRPS_START + *gid;
     struct cpu_ctx *cctx;
     s32 cpu;
-    bpf_for(cpu, 0, MAX_CPUS) {
-        if (bpf_cpumask_test_cpu(cpu, &chrs->corebitmask)) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (cpu_is_online(cpu) && bpf_cpumask_test_cpu(cpu, &chrs->corebitmask)) {
             cctx = try_lookup_cpu_ctx(cpu);
             if (!cctx) {
                 error("[dsqs][gmap] cctx not found for cpu %d ", cpu);
@@ -163,13 +168,12 @@ static __noinline struct bpf_cpumask *cpu_mask_intersection(struct cpumask *mask
 //////
 // CPU helpers
 
-#define KICK_ALL_CPUS_CALL_COUNT_THRESHOLD (MAX_CPUS / 4)
 static s32 kick_all_cpus_call_count = 0;
 
 static __always_inline void kick_cpus(struct cpumask *mask) {
     s32 cpu;
-    bpf_for(cpu, 0, MAX_CPUS) {
-        if (bpf_cpumask_test_cpu(cpu, mask)) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (cpu_is_online(cpu) && bpf_cpumask_test_cpu(cpu, mask)) {
             scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE);
         }
     }
@@ -177,14 +181,18 @@ static __always_inline void kick_cpus(struct cpumask *mask) {
 
 static __always_inline void kick_all_cpus() {
     s32 cpu;
-    bpf_for(cpu, 0, MAX_CPUS) { scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE); }
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (cpu_is_online(cpu)) {
+            scx_bpf_kick_cpu(cpu, SCX_KICK_IDLE);
+        }
+    }
 }
 
 // kicks all cpus only when number of calls exceed
 // a threshold
 static __noinline void kick_all_cpus_every_nth_call() {
     kick_all_cpus_call_count += 1;
-    if (kick_all_cpus_call_count < KICK_ALL_CPUS_CALL_COUNT_THRESHOLD) {
+    if (kick_all_cpus_call_count < MAX(1U, configured_online_cpu_count() / 4)) {
         return;
     }
     kick_all_cpus_call_count = 0;
@@ -221,7 +229,10 @@ static void __noinline boost_cpus() {
     u32 cpu;
     u32 cpu_perf_lvl;
 
-    bpf_for(cpu, 0, MAX_CPUS) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (!cpu_is_online(cpu)) {
+            continue;
+        }
         cpu_perf_lvl = scx_bpf_cpuperf_cur(cpu);
         info("[dsqs][cpufreq] cpu: %d cur perf lvl: %d", cpu, cpu_perf_lvl);
         scx_bpf_cpuperf_set(cpu, SCX_CPUPERF_ONE);
@@ -745,7 +756,7 @@ static __noinline void task_stats_task_mask_updated(struct task_struct *p) {
     }
 
     u32 number_of_set_cpus = bpf_cpumask_weight(p->cpus_ptr);
-    tctx->use_specified_cpus = number_of_set_cpus <= MAX_CPUS / 2;
+    tctx->use_specified_cpus = number_of_set_cpus <= configured_online_cpu_count() / 2;
 }
 
 static __always_inline bool prefix_match(char *prefix, char *string, s32 len) {
@@ -928,7 +939,10 @@ static void __noinline stats_update_global() {
     SchedGroupStats_t *stats = NULL;
     SchedGroupChrs_t *chrs = NULL;
 
-    bpf_for(cpu, 0, MAX_CPUS) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (!cpu_is_online(cpu)) {
+            continue;
+        }
         // TODO: it causes contention across cores! every 200ms
         // maybe use a lockless structure to accumulate stuff
         // that would have to write to shared memory on each call
@@ -967,9 +981,10 @@ static void __noinline stats_update_global() {
                  gid, stats->util, stats->avg_util, chrs->core_count);
         }
     }
-    util /= 48;
-    autil /= 48;
-    info("[stats][cpu] across 48 cores util: %llu avg util: %llu", util, autil);
+    util /= configured_online_cpu_count();
+    autil /= configured_online_cpu_count();
+    info("[stats][cpu] across %u cores util: %llu avg util: %llu",
+         configured_online_cpu_count(), util, autil);
 }
 
 ////////////////////////////
@@ -1049,8 +1064,8 @@ static __noinline long callback_gmap_populate_cpu_to_domain_id_map_iter(struct b
     SchedGroupChrs_t *chrs = (SchedGroupChrs_t *)val;
 
     s32 cpu;
-    bpf_for(cpu, 0, MAX_CPUS) {
-        if (bpf_cpumask_test_cpu(cpu, &chrs->corebitmask)) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (cpu_is_online(cpu) && bpf_cpumask_test_cpu(cpu, &chrs->corebitmask)) {
             cpu_to_domain_id[cpu] = *gid;
         }
     }
@@ -1068,7 +1083,7 @@ static s32 __noinline populate_cpu_to_domain_id_map() {
 
 static __always_inline s32 clip_cpu_to_bounds(s32 cpu) {
     cpu = cpu < 0 ? 0 : cpu;
-    cpu = cpu >= MAX_CPUS ? MAX_CPUS - 1 : cpu;
+    cpu = cpu >= configured_cpu_id_count() ? configured_cpu_id_count() - 1 : cpu;
     return cpu;
 }
 
@@ -1192,7 +1207,10 @@ static s32 __noinline create_priority_dsqs_per_cpu() {
     u64 dsqid;
     s32 err = 0;
 
-    bpf_for(cpu, 0, nr_cpu_ids_config) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (!cpu_is_online(cpu)) {
+            continue;
+        }
         numa_node = cpu_to_numanode(cpu);
         dsqid = DSQ_PRIO_PER_CPU_START + cpu;
         err = scx_bpf_create_dsq(dsqid, numa_node);
@@ -1294,10 +1312,13 @@ static bool __inline lookup_and_update_min_dsq_len(s32 current_cpu, s32 *old_cpu
 
 static __noinline s32 least_loaded_local_dsq_cpu(struct cpumask *bitmask) {
     s32 cpu;
-    s32 min_dsq_cpu = 0;
+    s32 min_dsq_cpu = last_online_cpu_config;
     s32 min_dsq_len = INT_MAX;
 
-    bpf_for(cpu, 0, MAX_CPUS) {
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        if (!cpu_is_online(cpu)) {
+            continue;
+        }
         if (bitmask) {
             if (bpf_cpumask_test_cpu(cpu, bitmask)) {
                 lookup_and_update_min_dsq_len(cpu, &min_dsq_cpu, &min_dsq_len);
@@ -1326,6 +1347,9 @@ static __noinline s32 worksteal_from_n_neighbors(s32 cpu, s32 n, s32 task_count)
 
     s32 cpu_i;
     bpf_for(cpu_i, cpu, end_cpu + 1) {
+        if (!cpu_is_online(cpu_i)) {
+            continue;
+        }
         tasks_moved += move_from_per_cpu_custom_to_local_dsq(cpu_i, tasks_leftover);
         tasks_leftover = task_count - tasks_moved;
         if (tasks_leftover == 0) {
@@ -1333,6 +1357,9 @@ static __noinline s32 worksteal_from_n_neighbors(s32 cpu, s32 n, s32 task_count)
         }
     }
     bpf_for(cpu_i, start_cpu, cpu + 1) {
+        if (!cpu_is_online(cpu_i)) {
+            continue;
+        }
         tasks_moved += move_from_per_cpu_custom_to_local_dsq(cpu_i, tasks_leftover);
         tasks_leftover = task_count - tasks_moved;
         if (tasks_leftover == 0) {
@@ -1344,7 +1371,7 @@ static __noinline s32 worksteal_from_n_neighbors(s32 cpu, s32 n, s32 task_count)
 }
 
 static __noinline void worksteal_from_neighbors(s32 cpu, s32 task_count) {
-    s32 neighbor_count = MAX(cpu, MAX_CPUS - cpu);
+    s32 neighbor_count = MAX(cpu, configured_cpu_id_count() - cpu);
     s32 n;
     s32 tasks_leftover = task_count;
     bpf_for(n, 1, neighbor_count) {
@@ -1496,7 +1523,7 @@ static __noinline bool enqueue_to_last_domain_queue(struct task_struct *p,
         return false;
     }
 
-    u64 dsqid = cpu_to_domain_regular_dsqid(MAX_CPUS - 1);
+    u64 dsqid = cpu_to_domain_regular_dsqid(last_online_cpu_config);
     u64 domain_id = dsqid - DSQ_REG_Q_PER_DOM_START;
 
     SchedGroupChrs_t *sched_chrs = get_schedgroup_chrs(domain_id);

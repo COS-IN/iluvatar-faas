@@ -393,10 +393,10 @@ impl CpuResourceTracker {
                 let stats = fineloadbalancing.stats.clone();
                 let domain_id = match stats.tid_map.get(&tid) {
                     Some(entry) => *entry,
-                    None => {
-                        error!(tid=%tid, "[finesched] no domain found for tid in tid_stats map");
-                        return;
-                    },
+                    // Normal invocation completion releases the cgroup/domain before
+                    // the RAII CPU permit is dropped.  The permit callback is also
+                    // used as failure-path cleanup, so it must be idempotent.
+                    None => return,
                 };
 
                 lbpolicy.release_domain(&tid, reg.clone());

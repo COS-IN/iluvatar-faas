@@ -30,7 +30,9 @@ enum consts {
     MAX_MAP_ENTRIES_CMAP = 1024,
     MAX_MAP_ENTRIES_TASK_STORE = (16 * 4096),
     MAX_PATH = 100,
-    MAX_CPUS = 48,
+    // BPF arrays need a verifier-visible upper bound. The actual CPU-ID range
+    // and online set are supplied by the userspace loader at runtime.
+    MAX_CPUS = 1024,
 
     MAX_CPU_UTIL = 1000, // 100.0%
 
@@ -49,7 +51,9 @@ enum consts {
     DSQ_INACTIVE_GRPS_N1 = 0x11,    // for all cores
     DSQ_PRIO_GRPS_START = 0x200,    // starting id for prio dsqs for the sched
                                     // grps
-    DSQ_PRIO_PER_CPU_START = 0x300, // starting id for prio dsqs for the sched
+    // Keep the per-CPU range disjoint from the small domain DSQ ranges even
+    // when CPU IDs exceed 255.
+    DSQ_PRIO_PER_CPU_START = 0x10000, // starting id for per-CPU priority DSQs
 
     DSQ_PRIO_Q_PER_DOM_START = 0x400,
     DSQ_REG_Q_PER_DOM_START = 0x500,
@@ -77,6 +81,27 @@ enum consts {
     BUSYPOLLING_IP_VARIANCE_THRESHOLD = 16,
 };
 
+enum cpu_topology_flags {
+    CPU_TOPOLOGY_POSSIBLE = (1U << 0),
+    CPU_TOPOLOGY_ONLINE = (1U << 1),
+    CPU_TOPOLOGY_BIG = (1U << 2),
+    CPU_TOPOLOGY_LITTLE = (1U << 3),
+    CPU_TOPOLOGY_SMT = (1U << 4),
+};
+
+typedef struct CpuTopology {
+    s32 numa_node;
+    s32 package_id;
+    s32 die_id;
+    s32 cluster_id;
+    s32 core_id;
+    u32 capacity;
+    u32 max_freq_khz;
+    u32 core_type;
+    u32 flags;
+    u32 smt_sibling_count;
+} CpuTopology_t;
+
 // TODO: not sure why scx_utils builder is not
 // recognizing the definition from vmlinux.h during
 // early build stages
@@ -88,10 +113,11 @@ struct cpumask {
 
 ////////////////////////////
 // macros
-#define debug 1
+#define debug 0
 #define info(fmt, args...)                                                                         \
     do {                                                                                           \
-        bpf_printk(fmt, ##args);                                                                   \
+        if (debug)                                                                                 \
+            bpf_printk(fmt, ##args);                                                               \
     } while (0)
 #define error(fmt, args...)                                                                        \
     do {                                                                                           \

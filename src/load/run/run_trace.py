@@ -125,12 +125,15 @@ def _run_load(logger, results_dir, input_csv, metadata, kwargs):
     shutil.copy(input_csv, results_dir)
     shutil.copy(metadata, results_dir)
 
-    gen_path = os.path.join(
-        kwargs["ilu_home"],
-        "target/x86_64-unknown-linux-gnu",
-        kwargs["build_level"].path_name(),
-        "iluvatar_load_gen",
-    )
+    if "load_gen_bin" in kwargs and kwargs["load_gen_bin"]:
+        gen_path = kwargs["load_gen_bin"]
+    else:
+        gen_path = os.path.join(
+            kwargs["ilu_home"],
+            "target/x86_64-unknown-linux-gnu",
+            kwargs["build_level"].path_name(),
+            "iluvatar_load_gen",
+        )
     port = kwargs["worker_port"]
     if kwargs["target"] == RunTarget.CONTROLLER:
         port = kwargs["controller_port"]

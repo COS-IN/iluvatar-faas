@@ -29,6 +29,8 @@ pub use bpf_intf::SchedGroupStats;
 mod sched;
 pub use sched::load_bpf_scheduler_async;
 
+mod topology;
+
 mod groups;
 pub use groups::PreAllocatedGroups;
 pub use groups::PreallocGroupsConfig;

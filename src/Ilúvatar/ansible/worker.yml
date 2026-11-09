@@ -12,6 +12,7 @@
     __architecture: "{{ servers[ansible_host].architecture | default('x86_64-unknown-linux-gnu') }}"
     def_bin_src: "{{iluvatar_home}}/target/{{__architecture}}/{{target}}"
     __bin_src: "{{ worker_bin_src | default(def_bin_src) }}"
+    __config_src: "{{ worker_config_src | default(__bin_src ~ '/' ~ worker.config_name) }}"
     __remote_bin_src: "{{ remote_bin_src | default(false) }}"
     __worker_address: "{{ worker_address | default(servers[ansible_host].internal_ip) }}"
     __hardware_interface: "{{ hardware_interface | default(servers[ansible_host].hardware_interface) }}"
@@ -53,7 +54,7 @@
 
   - name: copy worker config
     ansible.builtin.copy:
-      src: "{{__bin_src}}/{{worker.config_name}}"
+      src: "{{__config_src}}"
       dest: "{{config_dest}}"
       mode: "preserve"
     become: yes
@@ -65,7 +66,13 @@
     when: mode == "clean"
 
   - name: Kill running worker process on localhost
-    shell: "kill -s INT {{ item }}"
+    shell: |
+      kill -s INT {{ item }}
+      for attempt in $(seq 1 10); do
+        kill -0 {{ item }} 2>/dev/null || exit 0
+        sleep 1
+      done
+      kill -9 {{ item }}
     with_items: "{{ running_worker.stdout_lines }}"
     become: yes
     when: (ansible_host == "127.0.0.1" or ansible_host == "localhost") and mode == "clean"
@@ -177,6 +184,10 @@
     - name: Print stdout
       debug:
         msg: "{{ file_data.content | b64decode }}"
+
+    - name: Fail when worker did not start
+      ansible.builtin.fail:
+        msg: "Worker failed to become ready; stdout is printed above"
 
   - name: Copy worker logs
     ansible.posix.synchronize:

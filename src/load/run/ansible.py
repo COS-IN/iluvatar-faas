@@ -31,7 +31,13 @@ def _run_ansible_clean(logger: Logger, kwargs):
     ]
     env_args = [kwargs["ansible_hosts_addrs"], "mode=clean", f"target={kwargs['build_level'].path_name()}"]
 
-    worker_env = kwargs.to_env_var_dict("worker")
+    # An explicit config is authoritative. Ansible still supplies the
+    # host-specific name/address/port values declared by worker.yml.
+    worker_env = (
+        {}
+        if "worker_config_file" in kwargs and kwargs["worker_config_file"]
+        else kwargs.to_env_var_dict("worker")
+    )
     worker_env = json.dumps({"worker_environment": worker_env})
     env_args.append(worker_env)
     if kwargs["target"] == RunTarget.CONTROLLER:
@@ -45,6 +51,10 @@ def _run_ansible_clean(logger: Logger, kwargs):
 
     if kwargs["private_ssh_key"] is not None:
         run_args.append(f"--private-key={kwargs['private_ssh_key']}")
+    if type(kwargs["ansible_args"]) == str and len(kwargs["ansible_args"]) > 0:
+        run_args.extend(kwargs["ansible_args"].split(" "))
+    elif type(kwargs["ansible_args"]) == list and len(kwargs["ansible_args"]) > 0:
+        run_args.extend(kwargs["ansible_args"])
     _run_cmd(run_args, logger)
 
 
@@ -152,7 +162,11 @@ def _run_ansible(
         "mode=deploy",
         f"target={kwargs['build_level'].path_name()}",
     ]
-    worker_env = kwargs.to_env_var_dict("worker")
+    worker_env = (
+        {}
+        if "worker_config_file" in kwargs and kwargs["worker_config_file"]
+        else kwargs.to_env_var_dict("worker")
+    )
     worker_env = json.dumps({"worker_environment": worker_env})
     env_args.append(worker_env)
     if kwargs["target"] == RunTarget.CONTROLLER:

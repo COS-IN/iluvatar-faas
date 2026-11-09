@@ -87,7 +87,6 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 config.bpf_verbose,
                 config.sched_ext_migration == crate::worker_api::worker_config::SchedExtMigrationMethod::Kfunc,
                 config.task_ip_monitoring_enabled(),
-                num_cpus::get() as u32,
             );
         }
 
