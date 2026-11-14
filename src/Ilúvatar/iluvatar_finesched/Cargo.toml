@@ -24,6 +24,7 @@ ctrlc = { version = "3.1", features = ["termination"] }
 
 anyhow = "1.0"
 libc = "0.2"
+tracing = "0.1"
 libbpf-rs = { version = "=0.26.2" }
 scx_utils = { version = "=1.1.3" }
 

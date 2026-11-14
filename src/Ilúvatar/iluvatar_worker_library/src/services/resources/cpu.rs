@@ -20,8 +20,8 @@ use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::DroppableMovableTrait;
 use iluvatar_library::{bail_error, threading};
 use parking_lot::{Mutex, RwLock};
+use std::collections::BTreeMap;
 use std::fs::read_to_string;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -84,6 +84,19 @@ impl CpuResourceTracker {
         cmap: WorkerCharMap,
         fineloadbalancing_config: Option<Arc<FineLoadBalancingConfig>>,
     ) -> Result<Arc<Self>> {
+        Self::new_with_core_utilization(
+            config, load_avg, tid, cmap, fineloadbalancing_config, CpuCoreUtilization::new(0),
+        )
+    }
+
+    pub fn new_with_core_utilization(
+        config: &Arc<CPUResourceConfig>,
+        load_avg: LoadAvg,
+        tid: &TransactionId,
+        cmap: WorkerCharMap,
+        fineloadbalancing_config: Option<Arc<FineLoadBalancingConfig>>,
+        core_utilization: Arc<CpuCoreUtilization>,
+    ) -> Result<Arc<Self>> {
         let mut max_concur = 0;
         let available_cores = match config.count {
             0 => num_cpus::get(),
@@ -118,7 +131,9 @@ impl CpuResourceTracker {
 
         let mut fineloadbalancing = None;
         if let Some(ref fineloadbalancing_config) = fineloadbalancing_config {
-            fineloadbalancing = Some(FineLoadBalancing::build_arc(fineloadbalancing_config.clone(), cmap));
+            fineloadbalancing = Some(FineLoadBalancing::build_arc_with_cpu_utilization(
+                fineloadbalancing_config.clone(), cmap, core_utilization.clone(),
+            ));
         }
 
         let svc = Arc::new(CpuResourceTracker {
@@ -442,7 +457,51 @@ pub fn get_cpu_mon(
     invoker: Arc<dyn Invoker>,
     tid: &TransactionId,
 ) -> Result<CpuMonitor> {
-    CpuMonitorWrap::boxed(config, ring_buff, num_cpus, signal, invoker, tid)
+    get_cpu_mon_with_core_utilization(
+        config, ring_buff, num_cpus, signal, invoker, tid, CpuCoreUtilization::new(num_cpus as usize),
+    )
+}
+
+pub fn get_cpu_mon_with_core_utilization(
+    config: &Arc<StatusConfig>,
+    ring_buff: &Arc<RingBuffer>,
+    num_cpus: u32,
+    signal: LoadAvg,
+    invoker: Arc<dyn Invoker>,
+    tid: &TransactionId,
+    core_utilization: Arc<CpuCoreUtilization>,
+) -> Result<CpuMonitor> {
+    CpuMonitorWrap::boxed(config, ring_buff, num_cpus, signal, invoker, tid, core_utilization)
+}
+
+/// Latest `/proc/stat` busy percentage for each logical CPU, indexed by CPU ID.
+/// Entries remain unavailable until two samples have been collected.
+#[derive(Default)]
+pub struct CpuCoreUtilization {
+    values: RwLock<Vec<Option<f64>>>,
+}
+
+impl CpuCoreUtilization {
+    pub fn new(cpu_count: usize) -> Arc<Self> {
+        Arc::new(Self { values: RwLock::new(vec![None; cpu_count]) })
+    }
+
+    fn update(&self, values: &BTreeMap<u32, f64>) {
+        let mut current = self.values.write();
+        current.fill(None);
+        for (cpu, utilization) in values {
+            if *cpu as usize >= current.len() {
+                current.resize(*cpu as usize + 1, None);
+            }
+            if let Some(slot) = current.get_mut(*cpu as usize) {
+                *slot = Some(*utilization);
+            }
+        }
+    }
+
+    pub fn snapshot(&self) -> Vec<Option<f64>> {
+        self.values.read().clone()
+    }
 }
 
 #[derive(serde::Serialize, iluvatar_library::ToAny)]
@@ -486,6 +545,7 @@ impl CpuMonitorWrap {
         signal: LoadAvg,
         invoker: Arc<dyn Invoker>,
         tid: &TransactionId,
+        core_utilization: Arc<CpuCoreUtilization>,
     ) -> Result<CpuMonitor> {
         let (_handle, sender) = threading::tokio_logging_thread(
             config.report_freq_ms,
@@ -496,7 +556,7 @@ impl CpuMonitorWrap {
         let r = Arc::new(Self {
             mon: match is_simulation() {
                 true => CpuSimMonitor::new(num_cpus, signal, invoker, tid),
-                false => CpuHardwareMonitor::new(signal, tid)?,
+                false => CpuHardwareMonitor::new(signal, tid, core_utilization)?,
             },
             num_cpus,
         });
@@ -542,12 +602,14 @@ pub trait CpuMonitorTrait {
 struct CpuHardwareMonitor {
     last_instant_usage: Mutex<CPUUtilInstant>,
     signal: LoadAvg,
+    core_utilization: Arc<CpuCoreUtilization>,
 }
 impl CpuHardwareMonitor {
-    pub fn new(signal: LoadAvg, tid: &TransactionId) -> Result<Arc<Self>> {
+    pub fn new(signal: LoadAvg, tid: &TransactionId, core_utilization: Arc<CpuCoreUtilization>) -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
             last_instant_usage: Mutex::new(CPUUtilInstant::get(tid)?),
             signal,
+            core_utilization,
         }))
     }
 }
@@ -558,6 +620,7 @@ impl CpuMonitorTrait for CpuHardwareMonitor {
         let mut last = self.last_instant_usage.lock();
         let diff = &now - &*last;
         *last = now;
+        self.core_utilization.update(&diff.per_cpu_busy_percent);
 
         let buff = match read_to_string("/proc/loadavg") {
             Ok(f) => f,
@@ -612,6 +675,7 @@ impl CpuMonitorTrait for CpuSimMonitor {
                 cpu_steal: 0.0,
                 cpu_guest: 0.0,
                 cpu_guest_nice: 0.0,
+                per_cpu_busy_percent: BTreeMap::new(),
             },
             load_avg,
         ))
@@ -631,6 +695,7 @@ pub struct CPUUtilInstant {
     cpu_steal: f64,
     cpu_guest: f64,
     cpu_guest_nice: f64,
+    per_cpu: BTreeMap<u32, [f64; 10]>,
 }
 impl Default for CPUUtilInstant {
     fn default() -> Self {
@@ -646,68 +711,61 @@ impl Default for CPUUtilInstant {
             cpu_steal: 0.0,
             cpu_guest: 0.0,
             cpu_guest_nice: 0.0,
+            per_cpu: BTreeMap::new(),
         }
     }
 }
 impl CPUUtilInstant {
     pub fn get(tid: &TransactionId) -> Result<Self> {
-        let cpu_line = Self::read()?;
-        Self::parse(cpu_line, tid)
+        let contents = Self::read()?;
+        Self::parse(contents, tid)
     }
     fn read() -> Result<String> {
-        let mut ret = String::new();
-        let mut b = match std::fs::File::open("/proc/stat") {
-            Ok(f) => BufReader::new(f),
-            Err(e) => {
-                return Err(e.into());
-            },
-        };
-        loop {
-            match b.read_line(&mut ret)? {
-                0 => anyhow::bail!("Unable to find matching 'cpu ' line in /proc/stat"),
-                _ => {
-                    if ret.starts_with("cpu ") {
-                        return Ok(ret);
-                    }
-                },
+        std::fs::read_to_string("/proc/stat").context("failed to read /proc/stat")
+    }
+    fn parse(contents: String, tid: &TransactionId) -> Result<Self> {
+        let mut aggregate = None;
+        let mut per_cpu = BTreeMap::new();
+        for line in contents.lines() {
+            let mut fields = line.split_whitespace();
+            let Some(label) = fields.next() else { continue };
+            let cpu_id = label.strip_prefix("cpu").and_then(|id| id.parse::<u32>().ok());
+            if label != "cpu" && cpu_id.is_none() {
+                continue;
+            }
+            let values = fields.map(str::parse::<f64>).collect::<std::result::Result<Vec<_>, _>>()
+                .with_context(|| format!("failed to parse /proc/stat CPU row for {label} (transaction {tid})"))?;
+            if label == "cpu" {
+                aggregate = Some(values);
+            } else if let Some(cpu_id) = cpu_id {
+                if values.len() < 4 {
+                    continue;
+                }
+                let mut counters = [0.0; 10];
+                for (index, value) in values.into_iter().take(10).enumerate() {
+                    counters[index] = value;
+                }
+                per_cpu.insert(cpu_id, counters);
             }
         }
-    }
-    fn parse(mut line: String, tid: &TransactionId) -> Result<Self> {
-        if line.ends_with('\n') {
-            line.pop();
+        let values = aggregate.ok_or_else(|| anyhow::anyhow!("Unable to find matching 'cpu ' line in /proc/stat"))?;
+        if values.len() < 10 {
+            anyhow::bail!("/proc/stat aggregate CPU row was unexpectedly short");
         }
-        let strs: Vec<&str> = line.split(' ').filter(|str| !str.is_empty()).collect();
         Ok(Self {
             read_time: now(),
-            cpu_user: Self::safe_get_val(&strs, 1, tid)?,
-            cpu_nice: Self::safe_get_val(&strs, 2, tid)?,
-            cpu_system: Self::safe_get_val(&strs, 3, tid)?,
-            cpu_idle: Self::safe_get_val(&strs, 4, tid)?,
-            cpu_iowait: Self::safe_get_val(&strs, 5, tid)?,
-            cpu_irq: Self::safe_get_val(&strs, 6, tid)?,
-            cpu_softirq: Self::safe_get_val(&strs, 7, tid)?,
-            cpu_steal: Self::safe_get_val(&strs, 8, tid)?,
-            cpu_guest: Self::safe_get_val(&strs, 9, tid)?,
-            cpu_guest_nice: Self::safe_get_val(&strs, 10, tid)?,
+            cpu_user: values[0],
+            cpu_nice: values[1],
+            cpu_system: values[2],
+            cpu_idle: values[3],
+            cpu_iowait: values[4],
+            cpu_irq: values[5],
+            cpu_softirq: values[6],
+            cpu_steal: values[7],
+            cpu_guest: values[8],
+            cpu_guest_nice: values[9],
+            per_cpu,
         })
-    }
-    fn safe_get_val(split_line: &[&str], pos: usize, tid: &TransactionId) -> Result<f64> {
-        if split_line.len() >= pos {
-            match split_line[pos].parse::<f64>() {
-                Ok(v) => Ok(v),
-                Err(e) => {
-                    bail_error!(error=%e, tid=tid, line=%split_line[pos], "Unable to parse string from /proc/stat")
-                },
-            }
-        } else {
-            bail_error!(
-                expected = pos,
-                actual = split_line.len(),
-                tid = tid,
-                "/proc/stat line was unexpectedly short!"
-            )
-        }
     }
 }
 
@@ -723,6 +781,7 @@ pub struct CPUUtilPcts {
     pub cpu_steal: f64,
     pub cpu_guest: f64,
     pub cpu_guest_nice: f64,
+    pub per_cpu_busy_percent: BTreeMap<u32, f64>,
 }
 impl std::ops::Sub for &CPUUtilInstant {
     type Output = CPUUtilPcts;
@@ -749,18 +808,38 @@ impl std::ops::Sub for &CPUUtilInstant {
             + steal_diff
             + guest_diff
             + guest_nice_diff;
+        let percentage = |value: f64| if tot > 0.0 { value / tot * 100.0 } else { 0.0 };
         CPUUtilPcts {
             read_diff: dur,
-            cpu_user: (user_diff / tot) * 100.0,
-            cpu_nice: (nice_diff / tot) * 100.0,
-            cpu_system: (system_diff / tot) * 100.0,
-            cpu_idle: (idle_diff / tot) * 100.0,
-            cpu_iowait: (iowait_diff / tot) * 100.0,
-            cpu_irq: (irq_diff / tot) * 100.0,
-            cpu_softirq: (softirq_diff / tot) * 100.0,
-            cpu_steal: (steal_diff / tot) * 100.0,
-            cpu_guest: (guest_diff / tot) * 100.0,
-            cpu_guest_nice: (guest_nice_diff / tot) * 100.0,
+            cpu_user: percentage(user_diff),
+            cpu_nice: percentage(nice_diff),
+            cpu_system: percentage(system_diff),
+            cpu_idle: percentage(idle_diff),
+            cpu_iowait: percentage(iowait_diff),
+            cpu_irq: percentage(irq_diff),
+            cpu_softirq: percentage(softirq_diff),
+            cpu_steal: percentage(steal_diff),
+            cpu_guest: percentage(guest_diff),
+            cpu_guest_nice: percentage(guest_nice_diff),
+            per_cpu_busy_percent: self
+                .per_cpu
+                .iter()
+                .filter_map(|(cpu, current)| {
+                    let previous = rhs.per_cpu.get(cpu)?;
+                    // guest/guest_nice are included in user/nice in /proc/stat.
+                    let total: f64 = current
+                        .iter()
+                        .take(8)
+                        .zip(previous.iter().take(8))
+                        .map(|(new, old)| new - old)
+                        .sum();
+                    if total <= 0.0 {
+                        return None;
+                    }
+                    let idle = (current[3] - previous[3]) + (current[4] - previous[4]);
+                    Some((*cpu, ((total - idle) / total * 100.0).clamp(0.0, 100.0)))
+                })
+                .collect(),
         }
     }
 }

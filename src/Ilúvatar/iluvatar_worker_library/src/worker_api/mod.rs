@@ -5,7 +5,9 @@ use crate::services::influx_updater::InfluxUpdater;
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::InvokerFactory;
 use crate::services::registration::RegistrationService;
-use crate::services::resources::cpu::{build_load_avg_signal, get_cpu_mon};
+use crate::services::resources::cpu::{
+    build_load_avg_signal, get_cpu_mon_with_core_utilization, CpuCoreUtilization,
+};
 use crate::services::resources::{cpu::CpuResourceTracker, gpu::GpuResourceTracker};
 use crate::services::worker_health::WorkerHealthService;
 use crate::worker_api::iluvatar_worker::IluvatarWorkerImpl;
@@ -32,12 +34,14 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
 
     let factory = IsolationFactory::new(worker_config.clone(), cmap.clone());
     let load_avg = build_load_avg_signal();
-    let cpu = CpuResourceTracker::new(
+    let cpu_core_utilization = CpuCoreUtilization::new(num_cpus::get());
+    let cpu = CpuResourceTracker::new_with_core_utilization(
         &worker_config.container_resources.cpu_resource,
         load_avg.clone(),
         tid,
         cmap.clone(),
         worker_config.fineloadbalancing.clone(),
+        cpu_core_utilization.clone(),
     )
     .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to make cpu resource tracker"))?;
 
@@ -99,13 +103,14 @@ pub async fn create_worker(worker_config: WorkerConfig, tid: &TransactionId) -> 
     let invoker = invoker_fact
         .get_invoker_service(tid)
         .or_else(|e| bail_error!(tid=tid, error=%e, "Failed to get invoker service"))?;
-    let cpu_mon = get_cpu_mon(
+    let cpu_mon = get_cpu_mon_with_core_utilization(
         &worker_config.status,
         &buff,
         cpu.cores as u32,
         load_avg.clone(),
         invoker.clone(),
         tid,
+        cpu_core_utilization,
     )?;
     let health = WorkerHealthService::boxed(worker_config.clone(), invoker.clone(), reg.clone(), isos.clone(), tid)
         .await

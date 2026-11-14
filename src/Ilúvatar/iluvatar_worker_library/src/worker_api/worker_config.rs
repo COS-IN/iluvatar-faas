@@ -228,9 +228,19 @@ pub struct FineLoadBalancingConfig {
     /// Guardrails log_base_c [2..].
     pub guardrails_log_base_c: u32,
 
-    /// CHBL projected load threshold as a fraction of domain capacity.
+    /// CHBL threshold as a fraction of the selected load's maximum (0 to 1).
     #[serde(default = "default_chbl_thresh")]
     pub chbl_thresh: f32,
+
+    /// Domain load signal used by CHBL: `used_cores`, `proc_stat`, `pelt`, or `power`.
+    #[serde(default)]
+    pub chbl_load_type: ChblLoadType,
+
+    /// Processor TDP in watts, used to approximate each domain's maximum power
+    /// budget. Set this for power mode; zero makes power load unavailable.
+    /// Each domain receives this value proportional to its configured CPU count.
+    #[serde(default = "default_chbl_cpu_tdp_watts")]
+    pub chbl_cpu_tdp_watts: f64,
 
     #[serde(default)]
     pub iat_bucket_size: usize,
@@ -258,6 +268,20 @@ pub struct FineLoadBalancingConfig {
 
 fn default_chbl_thresh() -> f32 {
     0.8
+}
+
+fn default_chbl_cpu_tdp_watts() -> f64 {
+    0.0
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChblLoadType {
+    #[default]
+    UsedCores,
+    ProcStat,
+    Pelt,
+    Power,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]

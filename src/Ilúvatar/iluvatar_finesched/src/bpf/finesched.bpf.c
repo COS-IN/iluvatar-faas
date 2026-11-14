@@ -91,6 +91,11 @@ struct cpu_ctx {
     u64 prev_idle_time;
     u64 util;
     u64 avg_util;
+
+    // Lazily updated, time-decayed sched_ext CPU duty-cycle estimate.
+    u64 pelt_like_util_avg;
+    u64 pelt_like_last_update_ns;
+    u64 pelt_like_running;
 };
 
 struct {
@@ -461,10 +466,20 @@ void BPF_STRUCT_OPS(finesched_set_cpumask, struct task_struct *p, const struct c
 }
 
 void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) {
+    struct cpu_ctx *cctx = try_lookup_cpu_ctx(bpf_get_smp_processor_id());
+    if (cctx) {
+        update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
+        cctx->pelt_like_running = 1;
+    }
     task_stats_start_running(p);
     refresh_core_metrics(bpf_get_smp_processor_id());
 }
 void BPF_STRUCT_OPS(finesched_stopping, struct task_struct *p, bool runnable) {
+    struct cpu_ctx *cctx = try_lookup_cpu_ctx(bpf_get_smp_processor_id());
+    if (cctx) {
+        update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
+        cctx->pelt_like_running = 0;
+    }
     task_stats_stop_running(p);
     refresh_core_metrics(bpf_get_smp_processor_id());
 }
@@ -547,8 +562,12 @@ void BPF_STRUCT_OPS(finesched_update_idle, s32 cpu, bool idle) {
     }
 
     if (idle) {
+        update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
+        cctx->pelt_like_running = 0;
         cctx->idle_start = bpf_ktime_get_ns();
     } else {
+        update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
+        cctx->pelt_like_running = 1;
         u64 old_clk = cctx->idle_start;
         if (old_clk != 0) {
             u64 duration = bpf_ktime_get_ns() - old_clk;

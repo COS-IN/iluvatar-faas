@@ -170,6 +170,10 @@ typedef struct CoreSchedMetrics {
     u64 runnable;
     u64 util;
     u64 avg_util;
+    // RAVG-style CPU duty-cycle average, scaled by MAX_CPU_UTIL.
+    u64 pelt_like_util_avg;
+    u64 pelt_like_last_update_ns;
+    u64 pelt_like_running;
 } CoreSchedMetrics_t;
 
 // Group Characteristics Structure

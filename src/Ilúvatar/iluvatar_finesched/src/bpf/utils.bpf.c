@@ -520,6 +520,43 @@ static u64 calc_avg(u64 old_val, u64 new_val) {
     return (old_val - (old_val >> 2)) + (new_val >> 2);
 }
 
+// Lazily update a PELT-like, fixed-point CPU duty-cycle average. The signal
+// stays constant between scheduler transitions. This piecewise-linear decay
+// halves the old contribution every 128 ms, avoiding floating point and loops
+// in BPF while keeping the update independent of callback frequency.
+#define PELT_LIKE_HALF_LIFE_NS (128ULL * NSEC_PER_MSEC)
+static void __always_inline update_pelt_like_cpu_util(struct cpu_ctx *c, u64 now) {
+    if (!c) {
+        return;
+    }
+    if (c->pelt_like_last_update_ns == 0) {
+        c->pelt_like_last_update_ns = now;
+        return;
+    }
+
+    u64 elapsed = now - c->pelt_like_last_update_ns;
+    if (elapsed == 0) {
+        return;
+    }
+
+    u64 whole_halflives = elapsed / PELT_LIKE_HALF_LIFE_NS;
+    u64 decayed_factor;
+    if (whole_halflives >= 10) {
+        decayed_factor = 0;
+    } else {
+        decayed_factor = MAX_CPU_UTIL >> whole_halflives;
+        u64 next_factor = decayed_factor >> 1;
+        u64 remainder = elapsed % PELT_LIKE_HALF_LIFE_NS;
+        decayed_factor -= ((decayed_factor - next_factor) * remainder) / PELT_LIKE_HALF_LIFE_NS;
+    }
+
+    u64 signal = c->pelt_like_running ? MAX_CPU_UTIL : 0;
+    c->pelt_like_util_avg =
+        (c->pelt_like_util_avg * decayed_factor + signal * (MAX_CPU_UTIL - decayed_factor)) /
+        MAX_CPU_UTIL;
+    c->pelt_like_last_update_ns = now;
+}
+
 static __noinline void task_stats_task_roundtrip_since_last_wakeup(struct task_struct *p) {
     struct task_context *tctx;
     tctx = try_lookup_task_ctx(p);
@@ -1293,6 +1330,7 @@ static void __noinline refresh_core_metrics(s32 cpu) {
         return;
     }
 
+    update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
     stats_update_percpu_util(cctx);
 
     s32 local_len = local_and_custom_dsq_len_for(cpu);
@@ -1305,6 +1343,9 @@ static void __noinline refresh_core_metrics(s32 cpu) {
     metrics->runnable = metrics->local_dsq_len + domain_len + busy;
     metrics->util = cctx->util;
     metrics->avg_util = cctx->avg_util;
+    metrics->pelt_like_util_avg = cctx->pelt_like_util_avg;
+    metrics->pelt_like_last_update_ns = cctx->pelt_like_last_update_ns;
+    metrics->pelt_like_running = cctx->pelt_like_running;
 }
 
 static __noinline u64 tasks_enqueued_on_bpfscheduler() {

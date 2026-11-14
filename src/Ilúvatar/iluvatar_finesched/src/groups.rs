@@ -1,4 +1,7 @@
 use dashmap::DashMap;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::hashmaps_safe::SharedMapsRef;
@@ -9,8 +12,7 @@ use crate::SchedGroupID;
 use crate::bpf_intf::*;
 use crate::utils::vec_to_cpumask;
 
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct SchedGroup {
@@ -20,9 +22,109 @@ pub struct SchedGroup {
     pub prio: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct PreallocGroupsConfig {
+    /// Number of FineSched domains to generate from the online CPU topology.
+    pub domain_count: usize,
+    /// Timeslice applied to generated domains, in milliseconds.
+    pub timeslice_ms: u64,
     pub groups: Vec<SchedGroup>,
+}
+
+impl Default for PreallocGroupsConfig {
+    fn default() -> Self {
+        Self {
+            domain_count: 4,
+            timeslice_ms: 5,
+            groups: Vec::new(),
+        }
+    }
+}
+
+impl PreallocGroupsConfig {
+    /// Build an even domain partition from online CPU topology. SMT siblings
+    /// are grouped by package/core before physical cores are divided.
+    pub fn generate_from_online_cpus(&self) -> anyhow::Result<Self> {
+        let cpu_root = Path::new("/sys/devices/system/cpu");
+        let mut physical_cores: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+
+        for entry in fs::read_dir(cpu_root)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some(cpu) = name.strip_prefix("cpu").and_then(|id| id.parse::<u32>().ok()) else {
+                continue;
+            };
+
+            let online_path = entry.path().join("online");
+            if fs::read_to_string(&online_path).is_ok_and(|state| state.trim() == "0") {
+                continue;
+            }
+
+            let topology = entry.path().join("topology");
+            let package_id = Self::read_topology_id(&topology.join("physical_package_id"))?;
+            let core_id = Self::read_topology_id(&topology.join("core_id"))?;
+            physical_cores.entry((package_id, core_id)).or_default().push(cpu);
+        }
+
+        let mut cores: Vec<Vec<u32>> = physical_cores.into_values().collect();
+        for siblings in &mut cores {
+            siblings.sort_unstable();
+        }
+        if cores.is_empty() {
+            anyhow::bail!(
+                "no online CPUs with package/core topology found under {}",
+                cpu_root.display()
+            );
+        }
+
+        let requested_domains = if self.domain_count == 0 { 4 } else { self.domain_count };
+        let domain_count = requested_domains.min(cores.len());
+        if domain_count < requested_domains {
+            tracing::warn!(
+                requested_domains,
+                physical_cores = cores.len(),
+                actual_domains = domain_count,
+                "[finesched] reducing domain count because there are fewer physical cores than requested"
+            );
+        }
+
+        let template = self.groups.first();
+        let default_prio = "arrival".to_string();
+        let mut groups: Vec<SchedGroup> = (0..domain_count)
+            .map(|_| SchedGroup {
+                cores: Vec::new(),
+                ts: self.timeslice_ms,
+                fifo: template.map_or(0, |group| group.fifo),
+                prio: template
+                    .map(|group| group.prio.clone())
+                    .filter(|prio| !prio.is_empty())
+                    .unwrap_or_else(|| default_prio.clone()),
+            })
+            .collect();
+
+        let base_cores_per_domain = cores.len() / domain_count;
+        let extra_cores = cores.len() % domain_count;
+        let mut next_core = 0;
+        for (domain_id, group) in groups.iter_mut().enumerate() {
+            let assigned_core_count = base_cores_per_domain + if domain_id < extra_cores { 1 } else { 0 };
+            for core_siblings in &cores[next_core..next_core + assigned_core_count] {
+                group.cores.extend(core_siblings.iter().copied());
+            }
+            next_core += assigned_core_count;
+        }
+
+        Ok(Self {
+            domain_count,
+            timeslice_ms: self.timeslice_ms,
+            groups,
+        })
+    }
+
+    fn read_topology_id(path: &Path) -> anyhow::Result<u32> {
+        Ok(fs::read_to_string(path)?.trim().parse()?)
+    }
 }
 
 /*

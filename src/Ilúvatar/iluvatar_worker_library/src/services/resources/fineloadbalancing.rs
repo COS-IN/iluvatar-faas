@@ -1,8 +1,9 @@
 use crate::services::registration::RegisteredFunction;
 use crate::services::resources::arc_map::ArcMap;
 use crate::services::resources::arc_vec::ArcVec;
+use crate::services::resources::cpu::CpuCoreUtilization;
 
-use crate::worker_api::worker_config::FineLoadBalancingConfig;
+use crate::worker_api::worker_config::{ChblLoadType, FineLoadBalancingConfig};
 use anyhow::bail;
 use anyhow::Result;
 use iluvatar_finesched::load_bpf_scheduler_async;
@@ -58,6 +59,7 @@ pub struct FineLoadBalancingStruct {
     pub system_domains: ArcVec<Domain>,
     pub stats: FineLoadBalancingStats,
     pub lbpolicy: LoadBalancingPolicy,
+    pub cpu_core_utilization: Arc<CpuCoreUtilization>,
 
     core_metrics_reader: Option<CoreMetricsReader>,
     core_metrics_debug_counter: AtomicU64,
@@ -70,10 +72,48 @@ pub type FineLoadBalancingWeak = Weak<FineLoadBalancingStruct>;
 
 pub trait BuildFineLoadBalancing {
     fn build_arc(config: Arc<FineLoadBalancingConfig>, cmap: WorkerCharMap) -> FineLoadBalancing;
+    fn build_arc_with_cpu_utilization(
+        config: Arc<FineLoadBalancingConfig>,
+        cmap: WorkerCharMap,
+        cpu_core_utilization: Arc<CpuCoreUtilization>,
+    ) -> FineLoadBalancing;
 }
 
 impl BuildFineLoadBalancing for FineLoadBalancing {
     fn build_arc(config: Arc<FineLoadBalancingConfig>, cmap: WorkerCharMap) -> FineLoadBalancing {
+        let cpu_count = config
+            .preallocated_groups
+            .groups
+            .iter()
+            .flat_map(|group| group.cores.iter().copied())
+            .max()
+            .map(|cpu| cpu as usize + 1)
+            .unwrap_or_else(num_cpus::get);
+        Self::build_arc_with_cpu_utilization(config, cmap, CpuCoreUtilization::new(cpu_count))
+    }
+
+    fn build_arc_with_cpu_utilization(
+        config: Arc<FineLoadBalancingConfig>,
+        cmap: WorkerCharMap,
+        cpu_core_utilization: Arc<CpuCoreUtilization>,
+    ) -> FineLoadBalancing {
+        let config = if config.testing == 0 {
+            let generated_groups = config
+                .preallocated_groups
+                .generate_from_online_cpus()
+                .unwrap_or_else(|error| panic!("failed to generate FineSched CPU domains: {error:#}"));
+            tracing::info!(
+                domain_count = generated_groups.groups.len(),
+                cpus_per_domain = ?generated_groups.groups.iter().map(|group| group.cores.len()).collect::<Vec<_>>(),
+                "[finesched] generated domains from online CPU topology"
+            );
+            let mut generated_config = (*config).clone();
+            generated_config.preallocated_groups = generated_groups;
+            Arc::new(generated_config)
+        } else {
+            config
+        };
+
         let scx_scheduler_sharedmaps: SharedMapsRef;
         if config.testing == 0 {
             scx_scheduler_sharedmaps = Arc::new(SharedMapsSafe::new());
@@ -96,7 +136,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
             );
         }
 
-        let core_metrics_reader = if config.core_metrics_debug_every == 0 || config.testing != 0 {
+        let core_metrics_reader = if config.testing != 0 {
             None
         } else {
             match CoreMetricsReader::open() {
@@ -104,8 +144,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 Err(error) => {
                     warn!(
                         error = %error,
-                        sample_every = config.core_metrics_debug_every,
-                        "[finesched][core-metrics] diagnostic disabled because the metrics reader could not be opened"
+                        "[finesched][core-metrics] metrics unavailable because the reader could not be opened"
                     );
                     None
                 },
@@ -167,10 +206,10 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                     fineloadbalancing_weak.clone(),
                     FuncDomainMapper::new(system_domains.clone()),
                 ))),
-		"chbl" => Some(Box::new(CHBL::new(
+                "chbl" => Some(Box::new(CHBL::new(
                     fineloadbalancing_weak.clone(),
                     FuncDomainMapper::new(system_domains.clone()),
-		    config.clone()
+                    config.clone(),
                 ))),
                 "consistent_hashing_guardrailspick" => Some(Box::new(ConsistentHashingGuardrailsPick::new(
                     fineloadbalancing_weak.clone(),
@@ -209,6 +248,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 system_domains,
                 stats: Default::default(),
                 lbpolicy,
+                cpu_core_utilization,
 
                 core_metrics_reader,
                 core_metrics_debug_counter: AtomicU64::new(0),
@@ -221,6 +261,49 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
 }
 
 impl FineLoadBalancingStruct {
+    /// Mean `/proc/stat` busy percentage across all logical CPUs in a domain.
+    /// Returns `None` until every CPU in that domain has a valid sample.
+    pub fn domain_cpu_utilization_percent(&self, domain_id: SchedGroupID) -> Option<f64> {
+        let group = self.preallocated_domains.get_schedgroup(domain_id)?;
+        if group.cores.is_empty() {
+            return None;
+        }
+        let samples = self.cpu_core_utilization.snapshot();
+        let mut total = 0.0;
+        for cpu in &group.cores {
+            total += samples.get(*cpu as usize).copied().flatten()?;
+        }
+        Some(total / group.cores.len() as f64)
+    }
+
+    /// Mean FineSched PELT-like duty-cycle utilization across a domain's
+    /// logical CPUs. Returns `None` when BPF metrics or any CPU sample is not
+    /// available.
+    pub fn domain_pelt_like_utilization_percent(&self, domain_id: SchedGroupID) -> Result<Option<f64>> {
+        let Some(reader) = self.core_metrics_reader.as_ref() else {
+            return Ok(None);
+        };
+        let Some(group) = self.preallocated_domains.get_schedgroup(domain_id) else {
+            return Ok(None);
+        };
+        if group.cores.is_empty() {
+            return Ok(None);
+        }
+
+        let mut total = 0.0;
+        for cpu in &group.cores {
+            total += reader.pelt_like_utilization_percent(*cpu)?;
+        }
+        Ok(Some(total / group.cores.len() as f64))
+    }
+
+    /// Sum the most recently sampled physical-core power values in a domain.
+    pub fn domain_power_watts(&self, domain_id: SchedGroupID) -> Option<f64> {
+        let reader = self.core_metrics_reader.as_ref()?;
+        let group = self.preallocated_domains.get_schedgroup(domain_id)?;
+        reader.cached_power_for_cpus(&group.cores).ok().flatten()
+    }
+
     /// Emit a low-rate diagnostic for a core in the assigned domain. Samples
     /// rotate through the domain's CPUs to avoid a random-number generator in
     /// the invocation path while still covering every core over time.
@@ -262,6 +345,19 @@ impl FineLoadBalancingStruct {
         let sample_ordinal = assignment_ordinal / sample_every;
         let core_index = (sample_ordinal.saturating_sub(1) as usize) % group.cores.len();
         let cpu = group.cores[core_index];
+        let (domain_core_power_watts, domain_power_watts) = match reader.power_for_cpus(&group.cores) {
+            Ok(power) => power,
+            Err(error) => {
+                warn!(
+                    tid = %tid,
+                    fqdn,
+                    domain_id,
+                    error = %error,
+                    "[finesched][power] failed to sample domain power"
+                );
+                (Vec::new(), None)
+            },
+        };
         match reader.snapshot(cpu) {
             Ok(snapshot) => debug!(
                 tid = %tid,
@@ -276,9 +372,13 @@ impl FineLoadBalancingStruct {
                 runnable_load = snapshot.runnable_load,
                 utilization_percent = snapshot.utilization_percent,
                 average_utilization_percent = snapshot.average_utilization_percent,
+                domain_proc_stat_utilization_percent = self.domain_cpu_utilization_percent(domain_id),
                 frequency_mhz = snapshot.frequency_mhz,
                 power_watts = ?snapshot.power_watts,
-                pelt_utilization = ?snapshot.pelt_utilization,
+                domain_core_power_watts = ?domain_core_power_watts,
+                domain_power_watts = ?domain_power_watts,
+                pelt_like_utilization_percent = snapshot.pelt_like_utilization_percent,
+                domain_pelt_like_utilization_percent = ?self.domain_pelt_like_utilization_percent(domain_id),
                 "[finesched][core-metrics] sampled assigned domain"
             ),
             Err(error) => warn!(
@@ -512,9 +612,9 @@ struct DomainMutableData {
 }
 
 impl DomainMutableData {
-    // XXX 1411 does not allow overcommit at all!? 
+    // XXX 1411 does not allow overcommit at all!?
     pub fn acquire_cores(&mut self, requested_cores: u32, assigned_cores: u32) -> bool {
-	// XXX 1411: Why this double mutation instead of temp var? 
+        // XXX 1411: Why this double mutation instead of temp var?
         self.used_cores += requested_cores;
         if self.used_cores <= assigned_cores {
             debug!( tag=%"cpu_release_issue", lbpolicy=%"consistent_hashing", used_cores=%self.used_cores, "[finesched] domain acquired");
@@ -525,13 +625,12 @@ impl DomainMutableData {
         return false;
     }
 
-    pub fn acquire_cores_oc(&mut self, requested_cores: u32) -> bool
-    {
-	self.used_cores += requested_cores; 
-	return true; 
+    pub fn acquire_cores_oc(&mut self, requested_cores: u32) -> bool {
+        self.used_cores += requested_cores;
+        return true;
     }
 
-    // overcommit ok 
+    // overcommit ok
 }
 
 #[derive(Debug)]
@@ -573,15 +672,13 @@ impl DomainStruct {
         self.mut_data.lock().unwrap().assigned_to_funcs.clone()
     }
 
-    pub fn acquire_cores_oc(&self, requested_cores: u32)
-    {
-	let mut data = self.mut_data.lock().unwrap();
-	data.used_cores += requested_cores;
-	// not pushing func name to the domain..either make this a hashmap with counts or something else ... perhaps along with workload context. or in characteristics map?
+    pub fn acquire_cores_oc(&self, requested_cores: u32) {
+        let mut data = self.mut_data.lock().unwrap();
+        data.used_cores += requested_cores;
+        // not pushing func name to the domain..either make this a hashmap with counts or something else ... perhaps along with workload context. or in characteristics map?
     }
-    
-    
-    // XXX 1411: Should be giving tokens instead of functions "acquiring" domains. 
+
+    // XXX 1411: Should be giving tokens instead of functions "acquiring" domains.
     pub fn can_serve_and_acquire_empty_or_assigned(&self, func_name: &String, cpus: u32) -> Result<()> {
         let mut d = self.mut_data.lock().unwrap();
 
@@ -591,7 +688,7 @@ impl DomainStruct {
                 return Ok(());
             }
         }
-	// XXX 1411: surely a more compact way in Rust!? 
+        // XXX 1411: surely a more compact way in Rust!?
         if let Some(_index) = d
             .assigned_to_funcs
             .iter()
@@ -658,7 +755,7 @@ fn dump_domain(domain: &Domain) -> String {
 pub trait DomainMapperTrait {
     fn get(&self, reg: Arc<RegisteredFunction>) -> Vec<Arc<Domain>>;
     fn expand_preferred_set(&self, reg: Arc<RegisteredFunction>) -> Vec<Arc<Domain>>;
-    // XXX 1411 what does this do? 
+    // XXX 1411 what does this do?
     fn rebalance_domains(&self, rebalance_logic: RebalanceClosure);
 }
 
@@ -686,7 +783,7 @@ impl FuncDomainMapper {
         })
     }
 
-    // XXX 1411: What is this doing with shared_counts etc!? Infinite loop risk etc?! 
+    // XXX 1411: What is this doing with shared_counts etc!? Infinite loop risk etc?!
     fn pick_next_domain(&self, starting_id: DomainId, excluding_set: Vec<Arc<Domain>>) -> Arc<Domain> {
         let domains = self.domains.immutable_clone();
 
@@ -859,7 +956,7 @@ impl DomainMapperTrait for IATDomainMapper {
     fn rebalance_domains(&self, _rebalance_logic: RebalanceClosure) {}
 }
 
-////// 
+//////
 
 pub struct ConsistentHashing {
     fineloadbalancing: FineLoadBalancingWeak,
@@ -945,7 +1042,7 @@ impl ConsistentHashing {
         None
     }
 
-    // release resource after func completion.. 
+    // release resource after func completion..
     pub fn return_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         let fineloadbalancing = self.fineloadbalancing.upgrade().unwrap();
         let stats = fineloadbalancing.stats.clone();
@@ -973,56 +1070,111 @@ impl LoadBalancingPolicyTrait for ConsistentHashing {
     }
 }
 
-///// CHBL 
+///// CHBL
 
 pub struct CHBL {
     fineloadbalancing: FineLoadBalancingWeak,
     domain_mapper: DomainMapper,
-    chbl_thresh: f32, 
+    chbl_load_type: ChblLoadType,
+    chbl_thresh: f32,
+    chbl_cpu_tdp_watts: f64,
+    total_domain_cores: u64,
 }
-
 
 impl SelectDomain for CHBL {
     /// Pick first acquirable domain from the set.
-    fn pick_domain_from_set(
-	&self,
-	reg: Arc<RegisteredFunction>,
-	domains: &Vec<Arc<Domain>>,
-    ) -> Option<Arc<Domain>> {
-	if domains.is_empty(){
-	    return None;
-	}
-	
+    fn pick_domain_from_set(&self, reg: Arc<RegisteredFunction>, domains: &Vec<Arc<Domain>>) -> Option<Arc<Domain>> {
+        if domains.is_empty() {
+            return None;
+        }
+
+        let fineloadbalancing = self.fineloadbalancing.upgrade()?;
+        if self.chbl_load_type == ChblLoadType::Power {
+            if let Some(reader) = fineloadbalancing.core_metrics_reader.as_ref() {
+                reader.sample_power();
+            }
+        }
+
         let func_name = reg.fqdn.as_bytes();
-	let hash = func_name.iter().fold(0usize, |hash, byte| hash.wrapping_mul(31).wrapping_add(*byte as usize));
+        let hash = func_name
+            .iter()
+            .fold(0usize, |hash, byte| hash.wrapping_mul(31).wrapping_add(*byte as usize));
 
-	let home = hash % domains.len();
-	let Bload_thresh = self.chbl_thresh; 
-	for offset in 1..=domains.len() {
-	    let index = (home + offset) % domains.len();
-	    let domain = &domains[index];
+        let home = hash % domains.len();
+        for offset in 1..=domains.len() {
+            let index = (home + offset) % domains.len();
+            let domain = &domains[index];
 
-	    let is_home = index == home;
-	    let anticip_domain_load = (domain.used_cores() as f32 +reg.cpus as f32)/domain.assigned_cores as f32;
-	    let under_load_threshold = anticip_domain_load < Bload_thresh;
-	    
-	    if under_load_threshold || is_home {
-		domain.acquire_cores_oc(reg.cpus); 
-		debug!( lbpolicy=%"chbl", domain_assigned=%dump_domain(&domain), "[finesched] assign_domain_to_function_request");
-		return Some(domain.clone());
-	    }	    
-	}
-	None
+            let is_home = index == home;
+
+            let (load_value, load_maximum) = match self.chbl_load_type {
+                ChblLoadType::UsedCores => (
+                    Some(domain.used_cores().saturating_add(reg.cpus) as f64),
+                    Some(domain.assigned_cores as f64),
+                ),
+                ChblLoadType::ProcStat => (
+                    fineloadbalancing.domain_cpu_utilization_percent(domain.schedgroup_id()),
+                    Some(100.0),
+                ),
+                ChblLoadType::Pelt => (
+                    fineloadbalancing
+                        .domain_pelt_like_utilization_percent(domain.schedgroup_id())
+                        .ok()
+                        .flatten(),
+                    Some(100.0),
+                ),
+                ChblLoadType::Power => {
+                    let domain_power_max = (self.total_domain_cores > 0).then(|| {
+                        self.chbl_cpu_tdp_watts * domain.assigned_cores as f64 / self.total_domain_cores as f64
+                    });
+                    (
+                        fineloadbalancing.domain_power_watts(domain.schedgroup_id()),
+                        domain_power_max,
+                    )
+                },
+            };
+            let normalized_load = load_value
+                .zip(load_maximum)
+                .and_then(|(value, maximum)| (maximum > 0.0).then_some(value / maximum));
+            let threshold = self.chbl_thresh as f64;
+            let under_load_threshold = normalized_load.is_some_and(|load| load < threshold);
+
+            if under_load_threshold || is_home {
+                domain.acquire_cores_oc(reg.cpus);
+                debug!(
+                    lbpolicy=%"chbl",
+                    load_type=?self.chbl_load_type,
+                    domain_load_value=?load_value,
+                    domain_load_maximum=?load_maximum,
+                    normalized_domain_load=?normalized_load,
+                    load_threshold=threshold,
+                    domain_assigned=%dump_domain(&domain),
+                    "[finesched] assign_domain_to_function_request"
+                );
+                return Some(domain.clone());
+            }
+        }
+        None
     }
-	
 }
 
-    
 impl CHBL {
-    pub fn new(fineloadbalancing: FineLoadBalancingWeak, domain_mapper: DomainMapper, config:Arc<FineLoadBalancingConfig>) -> Self {
+    pub fn new(
+        fineloadbalancing: FineLoadBalancingWeak,
+        domain_mapper: DomainMapper,
+        config: Arc<FineLoadBalancingConfig>,
+    ) -> Self {
         CHBL {
             fineloadbalancing,
-	    chbl_thresh: config.chbl_thresh,
+            chbl_thresh: config.chbl_thresh,
+            chbl_load_type: config.chbl_load_type,
+            chbl_cpu_tdp_watts: config.chbl_cpu_tdp_watts,
+            total_domain_cores: config
+                .preallocated_groups
+                .groups
+                .iter()
+                .map(|group| group.cores.len() as u64)
+                .sum(),
             domain_mapper,
         }
     }
@@ -1059,7 +1211,7 @@ impl CHBL {
         None
     }
 
-    // release resource after func completion.. 
+    // release resource after func completion..
     pub fn return_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         let fineloadbalancing = self.fineloadbalancing.upgrade().unwrap();
         let stats = fineloadbalancing.stats.clone();
@@ -1087,7 +1239,7 @@ impl LoadBalancingPolicyTrait for CHBL {
     }
 }
 
-//////// 
+////////
 
 // Consistent hashing with Guardrails pick
 pub struct ConsistentHashingGuardrailsPick {

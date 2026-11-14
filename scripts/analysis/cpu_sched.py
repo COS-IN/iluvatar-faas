@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Compare a paired CFS and FineSched Iluvatar experiment.
+"""Analyze one Iluvatar scheduler run or compare two runs.
 
 With no positional arguments, the newest complete ``*-cfs`` / ``*-finesched``
-pair under ``--results-root`` is selected.  The parser trims perf and turbostat
-to the worker's first ``Handling invocation request`` through its final
-``Invocation complete`` event.
+pair under ``--results-root`` is selected. Pass one result directory to analyze
+it on its own, or two directories to compare them. The parser trims perf and
+turbostat to the worker's first request through its final completion event.
 """
 
 from __future__ import annotations
@@ -661,42 +661,132 @@ def markdown(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def single_markdown(run: dict[str, Any]) -> str:
+    worker = run["worker"]
+    invocations = run["invocations"]
+    lines = [
+        "# CPU scheduler run analysis",
+        "",
+        f"- Result: `{run['result_dir']}`",
+        f"- Worker log: `{worker['log']}`",
+        f"- Invocation data: `{invocations['file']}`",
+        "",
+        "## Completion",
+        "",
+        "| Requests | Completions | Successes | Failures | Cold | Warm | Makespan (s) | Drain (ms) |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        f"| {worker['request_count']} | {worker['completion_count']} | "
+        f"{invocations['successes']} | {invocations['failures']} | {invocations['cold']} | "
+        f"{invocations['warm']} | {worker['makespan_seconds']:.3f} | "
+        f"{worker['drain_milliseconds']:.3f} |",
+        "",
+        "## Warm invocation latency",
+        "",
+        "| Function | Count | Mean E2E (ms) | p50 (ms) | p95 (ms) | p99 (ms) | "
+        "Mean worker (ms) | Mean code (ms) | CPU utilization |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for function, metrics in sorted(invocations["functions"].items()):
+        lines.append(
+            f"| {function} | {metrics['warm_count']} | {metrics['mean_e2e_ms']:.3f} | "
+            f"{metrics['p50_e2e_ms']:.3f} | {metrics['p95_e2e_ms']:.3f} | "
+            f"{metrics['p99_e2e_ms']:.3f} | {metrics['mean_worker_ms']:.3f} | "
+            f"{metrics['mean_code_ms']:.3f} | {metrics['mean_cpu_utilization']:.1f} |"
+        )
+    lines.append(
+        f"\nInvocation-weighted warm mean end-to-end latency: "
+        f"**{invocations['weighted_warm_mean_e2e_ms']:.3f} ms**."
+    )
+    if run["perf"]:
+        perf = run["perf"]
+        lines.extend([
+            "", "## Perf counters", "",
+            f"{perf['sample_count']} samples over {perf['duration_seconds']:.1f} seconds.", "",
+            "| Counter | Total | Rate/s |", "|---|---:|---:|",
+        ])
+        for event in PERF_EVENTS:
+            lines.append(f"| {event} | {perf['totals'].get(event, 0):.0f} | {perf['per_second'].get(event, 0):.2f} |")
+        lines.extend([
+            f"| IPC | {perf['ratios']['ipc']:.4f} |  |",
+            f"| Cache-miss ratio (%) | {perf['ratios']['cache_miss_percent']:.4f} |  |",
+        ])
+    if run["turbostat"]:
+        turbo = run["turbostat"]
+        summary = turbo["summary"]
+        lines.extend([
+            "", "## Power and CPU activity", "",
+            f"{turbo['sample_count']} one-second samples.", "",
+            "| Metric | Mean / total |", "|---|---:|",
+            f"| Package power (W) | {summary['PkgWatt']:.3f} |",
+            f"| Package energy (J) | {summary['package_joules']:.3f} |",
+            f"| Core power (W) | {summary['CorWatt']:.3f} |",
+            f"| Core energy (J) | {summary['core_joules']:.3f} |",
+            f"| Busy (%) | {summary['Busy%']:.3f} |",
+            f"| Busy frequency (MHz) | {summary['Bzy_MHz']:.1f} |",
+            f"| C1 residency (%) | {summary['C1%']:.3f} |",
+            f"| C2 residency (%) | {summary['C2%']:.3f} |",
+            f"| C3 residency (%) | {summary['C3%']:.3f} |",
+            "", "### Per-domain CPU activity", "",
+            "| Domain | Busy cores | Busy weighted MHz | Busy weighted IPC |",
+            "|---|---:|---:|---:|",
+        ])
+        for domain, metrics in turbo["domains"].items():
+            lines.append(
+                f"| {domain} | {metrics['busy_cores']:.3f} | "
+                f"{metrics['busy_weighted_mhz']:.1f} | {metrics['busy_weighted_ipc']:.3f} |"
+            )
+    assignments = worker["domain_assignments"]
+    if assignments:
+        lines.extend(["", "## FineSched domain assignments", "", "| Function | Domain | Count |", "|---|---:|---:|"])
+        for row in assignments:
+            lines.append(f"| {row['function']} | {row['domain']} | {row['count']} |")
+    lines.extend(["", "## Worker warnings and errors", ""])
+    if worker["errors"]:
+        for error in worker["errors"]:
+            lines.append(f"- {error['count']} x {error['level']} `{error['message']}`")
+    else:
+        lines.append("- None")
+    return "\n".join(lines)
+
+
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("cfs_dir", nargs="?", type=Path)
-    parser.add_argument("finesched_dir", nargs="?", type=Path)
+    parser.add_argument("result_dirs", nargs="*", type=Path, metavar="RESULT_DIR")
     parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS)
-    parser.add_argument("--output-dir", type=Path, help="write comparison.md and comparison.json")
+    parser.add_argument("--output-dir", type=Path, help="write the report and parsed JSON")
     return parser.parse_args()
 
 
 def main() -> int:
     args = arguments()
-    if (args.cfs_dir is None) != (args.finesched_dir is None):
-        raise SystemExit("provide both CFS_DIR and FINESCHED_DIR, or neither")
-    if args.cfs_dir is None:
-        cfs_dir, fine_dir = newest_pair(args.results_root.resolve())
+    if len(args.result_dirs) > 2:
+        raise SystemExit("provide one RESULT_DIR to analyze, two to compare, or none")
+    if args.result_dirs:
+        paths = [path.resolve() for path in args.result_dirs]
     else:
-        cfs_dir, fine_dir = args.cfs_dir.resolve(), args.finesched_dir.resolve()
-    for path in (cfs_dir, fine_dir):
+        paths = list(newest_pair(args.results_root.resolve()))
+    for path in paths:
         if not path.is_dir():
             raise SystemExit(f"result directory does not exist: {path}")
 
-    cfs = analyze_run(cfs_dir)
-    fine = analyze_run(fine_dir)
-    data = {
-        "runs": {"CFS": cfs, "FineSched": fine},
-        "comparison": comparison(cfs, fine),
-    }
-    report = markdown(data)
+    if len(paths) == 1:
+        run = analyze_run(paths[0])
+        data = {"run": run}
+        report = single_markdown(run)
+        report_name, json_name = "analysis.md", "analysis.json"
+    else:
+        cfs, fine = (analyze_run(path) for path in paths)
+        data = {"runs": {"CFS": cfs, "FineSched": fine}, "comparison": comparison(cfs, fine)}
+        report = markdown(data)
+        report_name, json_name = "comparison.md", "comparison.json"
     print(report)
     if args.output_dir:
         output = args.output_dir.resolve()
         output.mkdir(parents=True, exist_ok=True)
-        (output / "comparison.md").write_text(report + "\n")
-        (output / "comparison.json").write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
-        print(f"Wrote {output / 'comparison.md'}")
-        print(f"Wrote {output / 'comparison.json'}")
+        (output / report_name).write_text(report + "\n")
+        (output / json_name).write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
+        print(f"Wrote {output / report_name}")
+        print(f"Wrote {output / json_name}")
     return 0
 
 

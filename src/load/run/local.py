@@ -232,6 +232,112 @@ def _percentile(values: list[int], fraction: float) -> int:
     return ordered[max(0, math.ceil(len(ordered) * fraction) - 1)]
 
 
+_SAMPLED_DOMAIN_FIELDS = {
+    "cpu": "sampled_cpu",
+    "local_dsq_len": "sampled_local_dsq_len",
+    "domain_dsq_len": "sampled_domain_dsq_len",
+    "dsq_len": "sampled_dsq_len",
+    "runnable_load": "sampled_runnable_load",
+    "utilization_percent": "sampled_utilization_percent",
+    "average_utilization_percent": "sampled_average_utilization_percent",
+    "domain_proc_stat_utilization_percent": "sampled_domain_proc_stat_utilization_percent",
+    "frequency_mhz": "sampled_frequency_mhz",
+    "power_watts": "sampled_power_watts",
+    "domain_core_power_watts": "sampled_domain_core_power_watts",
+    "domain_power_watts": "sampled_domain_power_watts",
+    "pelt_like_utilization_percent": "sampled_pelt_like_utilization_percent",
+    "domain_pelt_like_utilization_percent": "sampled_domain_pelt_like_utilization_percent",
+}
+
+
+def enrich_output_csv_with_finesched_logs(results_dir: Path) -> tuple[int, int, int]:
+    """Join assignment and existing sampled-metric events onto invocation rows by tid."""
+    logs = list(results_dir.glob("worker*.log"))
+    nested_logs = results_dir / "worker_logs"
+    if nested_logs.exists():
+        logs.extend(nested_logs.rglob("*.log"))
+    logs = sorted({path for path in logs if path.name != "worker_stdout.log"})
+    outputs = sorted(
+        path for path in results_dir.glob("output-*.csv")
+        if "failed" not in path.name
+    )
+    if not logs or not outputs:
+        return 0, 0, 0
+
+    try:
+        with (results_dir / "worker_config.json").open() as source:
+            config = json.load(source)
+        policy = (config.get("fineloadbalancing") or {}).get("dispatchpolicy", "")
+    except (OSError, json.JSONDecodeError):
+        policy = ""
+
+    assignments: dict[str, dict[str, str]] = {}
+    samples: dict[str, dict[str, str]] = {}
+    for log_path in logs:
+        try:
+            source = log_path.open()
+        except OSError:
+            continue
+        with source:
+            for line in source:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                fields = entry.get("fields", {})
+                tid = fields.get("tid")
+                if not tid:
+                    continue
+                message = fields.get("message")
+                if message == "[finesched] domain assigned to function request":
+                    assignments[tid] = {
+                        "assigned_domain_id": str(fields.get("domain_id", "")),
+                        "assignment_policy": str(policy),
+                        "assignment_timestamp": str(entry.get("timestamp", "")),
+                    }
+                elif message == "[finesched][core-metrics] sampled assigned domain":
+                    sample = {
+                        "assignment_sample_timestamp": str(entry.get("timestamp", "")),
+                        "assignment_sample_ordinal": str(fields.get("assignment_ordinal", "")),
+                        "assignment_sample_every": str(fields.get("sample_every", "")),
+                    }
+                    sample.update({
+                        output_field: str(fields.get(input_field, ""))
+                        for input_field, output_field in _SAMPLED_DOMAIN_FIELDS.items()
+                    })
+                    samples[tid] = sample
+
+    columns = [
+        "assigned_domain_id", "assignment_policy", "assignment_timestamp",
+        "assignment_sample_timestamp", "assignment_sample_ordinal", "assignment_sample_every",
+        *_SAMPLED_DOMAIN_FIELDS.values(),
+    ]
+    assignment_rows = sampled_rows = 0
+    for output_path in outputs:
+        with output_path.open(newline="") as source:
+            reader = csv.DictReader(source)
+            fieldnames = list(reader.fieldnames or [])
+            rows = list(reader)
+        if "tid" not in fieldnames:
+            continue
+        fieldnames.extend(column for column in columns if column not in fieldnames)
+        for row in rows:
+            tid = row.get("tid", "")
+            if tid in assignments:
+                row.update(assignments[tid])
+                assignment_rows += 1
+            if tid in samples:
+                row.update(samples[tid])
+                sampled_rows += 1
+        temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+        with temporary_path.open("w", newline="") as destination:
+            writer = csv.DictWriter(destination, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+        temporary_path.replace(output_path)
+    return len(outputs), assignment_rows, sampled_rows
+
+
 def summarize_results(source: Path, summary_path: Path, failures_path: Path) -> None:
     """Write the small, dependency-free summary previously embedded in Bash."""
     with source.open(newline="") as source_file:
@@ -389,6 +495,14 @@ class DirectExperiment:
 
     def _postprocess(self) -> None:
         self.message("Post-processing results")
+        csv_count, assignment_rows, sampled_rows = enrich_output_csv_with_finesched_logs(
+            self.config.results_dir
+        )
+        if csv_count:
+            self.message(
+                f"Added FineSched assignment metadata to {assignment_rows} rows; "
+                f"sampled metrics were available for {sampled_rows} rows"
+            )
         if self.config.postprocess_script is not None:
             self.command([self.config.postprocess_script, self.config.results_dir])
             return
@@ -625,3 +739,9 @@ def run_ansible_local(config: AnsibleRunConfig) -> None:
         worker_log_dir=str(worker_log_dir),
         worker_port=port,
     )
+    csv_count, assignment_rows, sampled_rows = enrich_output_csv_with_finesched_logs(results_dir)
+    if csv_count:
+        print(
+            f"FineSched metadata: {assignment_rows} invocation rows have assignment records; "
+            f"{sampled_rows} rows have sampled metrics"
+        )
