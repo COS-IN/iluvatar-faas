@@ -228,6 +228,10 @@ pub struct FineLoadBalancingConfig {
     /// Guardrails log_base_c [2..].
     pub guardrails_log_base_c: u32,
 
+    /// CHBL projected load threshold as a fraction of domain capacity.
+    #[serde(default = "default_chbl_thresh")]
+    pub chbl_thresh: f32,
+
     #[serde(default)]
     pub iat_bucket_size: usize,
 
@@ -250,6 +254,10 @@ pub struct FineLoadBalancingConfig {
     /// verbose logs from bpf skeleton load
     #[serde(default)]
     pub testing: u8,
+}
+
+fn default_chbl_thresh() -> f32 {
+    0.8
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]

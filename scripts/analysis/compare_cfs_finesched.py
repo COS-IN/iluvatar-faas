@@ -56,6 +56,26 @@ def change_percent(new: float, old: float) -> float:
     return 100.0 * (new / old - 1.0) if old else math.nan
 
 
+def cpu_groups(result: Path) -> dict[str, set[int]]:
+    """Return the FineSched topology saved with a run, or the legacy layout."""
+    config_path = result / "worker_config.json"
+    if config_path.is_file():
+        with config_path.open() as source:
+            config = json.load(source)
+        try:
+            configured = config["fineloadbalancing"]["preallocated_groups"]["groups"]
+            groups = {
+                f"D{index}": {int(cpu) for cpu in group["cores"]}
+                for index, group in enumerate(configured)
+            }
+            if groups:
+                groups["system"] = set().union(*groups.values())
+                return groups
+        except (KeyError, TypeError, ValueError):
+            pass
+    return GROUPS
+
+
 def newest_pair(results_root: Path) -> tuple[Path, Path]:
     pairs = []
     for cfs in results_root.glob("*-cfs"):
@@ -341,7 +361,7 @@ def turbostat_data(result: Path, start: datetime, end: datetime) -> dict[str, An
     summary["core_joules"] = sum(summaries[index]["CorWatt"] for index in selected)
 
     domains = {}
-    for name, cpus in GROUPS.items():
+    for name, cpus in cpu_groups(result).items():
         intervals = []
         for index in selected:
             rows = [row for row in cpu_blocks[index] if row[0] in cpus]

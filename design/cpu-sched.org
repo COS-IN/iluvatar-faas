@@ -1,3 +1,4 @@
+
 :TITLE: SCX-based CPU scheduler
 
 * Intro/overview
@@ -31,5 +32,6 @@ iluvatar-faas/src/Ilúvatar/iluvatar_finesched/src/
 bpf scheduler code
 
 
-
+* Nov 14
+- [ ] CH-BL implement. 
 

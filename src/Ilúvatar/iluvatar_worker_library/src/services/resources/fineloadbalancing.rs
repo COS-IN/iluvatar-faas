@@ -167,6 +167,11 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                     fineloadbalancing_weak.clone(),
                     FuncDomainMapper::new(system_domains.clone()),
                 ))),
+		"chbl" => Some(Box::new(CHBL::new(
+                    fineloadbalancing_weak.clone(),
+                    FuncDomainMapper::new(system_domains.clone()),
+		    config.clone()
+                ))),
                 "consistent_hashing_guardrailspick" => Some(Box::new(ConsistentHashingGuardrailsPick::new(
                     fineloadbalancing_weak.clone(),
                     config.clone(),
@@ -507,7 +512,9 @@ struct DomainMutableData {
 }
 
 impl DomainMutableData {
+    // XXX 1411 does not allow overcommit at all!? 
     pub fn acquire_cores(&mut self, requested_cores: u32, assigned_cores: u32) -> bool {
+	// XXX 1411: Why this double mutation instead of temp var? 
         self.used_cores += requested_cores;
         if self.used_cores <= assigned_cores {
             debug!( tag=%"cpu_release_issue", lbpolicy=%"consistent_hashing", used_cores=%self.used_cores, "[finesched] domain acquired");
@@ -517,6 +524,14 @@ impl DomainMutableData {
         self.used_cores -= requested_cores;
         return false;
     }
+
+    pub fn acquire_cores_oc(&mut self, requested_cores: u32) -> bool
+    {
+	self.used_cores += requested_cores; 
+	return true; 
+    }
+
+    // overcommit ok 
 }
 
 #[derive(Debug)]
@@ -558,6 +573,15 @@ impl DomainStruct {
         self.mut_data.lock().unwrap().assigned_to_funcs.clone()
     }
 
+    pub fn acquire_cores_oc(&self, requested_cores: u32)
+    {
+	let mut data = self.mut_data.lock().unwrap();
+	data.used_cores += requested_cores;
+	// not pushing func name to the domain..either make this a hashmap with counts or something else ... perhaps along with workload context. or in characteristics map?
+    }
+    
+    
+    // XXX 1411: Should be giving tokens instead of functions "acquiring" domains. 
     pub fn can_serve_and_acquire_empty_or_assigned(&self, func_name: &String, cpus: u32) -> Result<()> {
         let mut d = self.mut_data.lock().unwrap();
 
@@ -567,7 +591,7 @@ impl DomainStruct {
                 return Ok(());
             }
         }
-
+	// XXX 1411: surely a more compact way in Rust!? 
         if let Some(_index) = d
             .assigned_to_funcs
             .iter()
@@ -634,6 +658,7 @@ fn dump_domain(domain: &Domain) -> String {
 pub trait DomainMapperTrait {
     fn get(&self, reg: Arc<RegisteredFunction>) -> Vec<Arc<Domain>>;
     fn expand_preferred_set(&self, reg: Arc<RegisteredFunction>) -> Vec<Arc<Domain>>;
+    // XXX 1411 what does this do? 
     fn rebalance_domains(&self, rebalance_logic: RebalanceClosure);
 }
 
@@ -661,6 +686,7 @@ impl FuncDomainMapper {
         })
     }
 
+    // XXX 1411: What is this doing with shared_counts etc!? Infinite loop risk etc?! 
     fn pick_next_domain(&self, starting_id: DomainId, excluding_set: Vec<Arc<Domain>>) -> Arc<Domain> {
         let domains = self.domains.immutable_clone();
 
@@ -833,6 +859,8 @@ impl DomainMapperTrait for IATDomainMapper {
     fn rebalance_domains(&self, _rebalance_logic: RebalanceClosure) {}
 }
 
+////// 
+
 pub struct ConsistentHashing {
     fineloadbalancing: FineLoadBalancingWeak,
 
@@ -873,7 +901,6 @@ impl SelectDomain for ConsistentHashing {
                 return Some(domain);
             }
         }
-
         None
     }
 }
@@ -882,7 +909,6 @@ impl ConsistentHashing {
     pub fn new(fineloadbalancing: FineLoadBalancingWeak, domain_mapper: DomainMapper) -> Self {
         ConsistentHashing {
             fineloadbalancing,
-
             domain_mapper,
         }
     }
@@ -919,6 +945,7 @@ impl ConsistentHashing {
         None
     }
 
+    // release resource after func completion.. 
     pub fn return_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         let fineloadbalancing = self.fineloadbalancing.upgrade().unwrap();
         let stats = fineloadbalancing.stats.clone();
@@ -945,6 +972,122 @@ impl LoadBalancingPolicyTrait for ConsistentHashing {
         self.return_domain(tid, reg.clone());
     }
 }
+
+///// CHBL 
+
+pub struct CHBL {
+    fineloadbalancing: FineLoadBalancingWeak,
+    domain_mapper: DomainMapper,
+    chbl_thresh: f32, 
+}
+
+
+impl SelectDomain for CHBL {
+    /// Pick first acquirable domain from the set.
+    fn pick_domain_from_set(
+	&self,
+	reg: Arc<RegisteredFunction>,
+	domains: &Vec<Arc<Domain>>,
+    ) -> Option<Arc<Domain>> {
+	if domains.is_empty(){
+	    return None;
+	}
+	
+        let func_name = reg.fqdn.as_bytes();
+	let hash = func_name.iter().fold(0usize, |hash, byte| hash.wrapping_mul(31).wrapping_add(*byte as usize));
+
+	let home = hash % domains.len();
+	let Bload_thresh = self.chbl_thresh; 
+	for offset in 1..=domains.len() {
+	    let index = (home + offset) % domains.len();
+	    let domain = &domains[index];
+
+	    let is_home = index == home;
+	    let anticip_domain_load = (domain.used_cores() as f32 +reg.cpus as f32)/domain.assigned_cores as f32;
+	    let under_load_threshold = anticip_domain_load < Bload_thresh;
+	    
+	    if under_load_threshold || is_home {
+		domain.acquire_cores_oc(reg.cpus); 
+		debug!( lbpolicy=%"chbl", domain_assigned=%dump_domain(&domain), "[finesched] assign_domain_to_function_request");
+		return Some(domain.clone());
+	    }	    
+	}
+	None
+    }
+	
+}
+
+    
+impl CHBL {
+    pub fn new(fineloadbalancing: FineLoadBalancingWeak, domain_mapper: DomainMapper, config:Arc<FineLoadBalancingConfig>) -> Self {
+        CHBL {
+            fineloadbalancing,
+	    chbl_thresh: config.chbl_thresh,
+            domain_mapper,
+        }
+    }
+
+    pub fn rebalance_domains(&self, rebalance_domains: RebalanceClosure) {
+        self.domain_mapper.rebalance_domains(rebalance_domains)
+    }
+
+    pub fn pick_domain(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+        domains_selection: &dyn SelectDomain,
+    ) -> Option<SchedGroupID> {
+        let func_name = &reg.fqdn;
+
+        let preferred_domains = self.domain_mapper.get(reg.clone());
+        debug!( tid=%tid, lbpolicy=%"consistent_hashing", fqdn=%func_name, preferred_domains=%dump_domains(&preferred_domains), "[finesched] assign_domain_to_function_request");
+
+        let mut domain;
+        domain = domains_selection.pick_domain_from_set(reg.clone(), &preferred_domains);
+        if domain.is_some() {
+            debug!( tid=%tid, lbpolicy=%"consistent_hashing", fqdn=%func_name, domain_assigned=%dump_domain(&domain.as_ref().unwrap()), "[finesched] assign_domain_to_function_request");
+            return Some(domain.unwrap().schedgroup_id());
+        }
+
+        let preferred_domains = self.domain_mapper.expand_preferred_set(reg.clone());
+        domain = domains_selection.pick_domain_from_set(reg.clone(), &preferred_domains);
+        if domain.is_some() {
+            debug!( tid=%tid, lbpolicy=%"consistent_hashing", fqdn=%func_name, domain_assigned=%dump_domain(&domain.as_ref().unwrap()), "[finesched] assign_domain_to_function_request");
+            return Some(domain.unwrap().schedgroup_id());
+        }
+
+        None
+    }
+
+    // release resource after func completion.. 
+    pub fn return_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        let fineloadbalancing = self.fineloadbalancing.upgrade().unwrap();
+        let stats = fineloadbalancing.stats.clone();
+        let domain_id = *stats.tid_map.get(tid).unwrap() as DomainId;
+        let domain = &fineloadbalancing.system_domains.immutable_clone()[domain_id];
+        domain.return_cpus_and_release(reg.cpus);
+    }
+}
+
+impl LoadBalancingPolicyTrait for CHBL {
+    fn assign_domain_to_function_request(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+    ) -> Option<SchedGroupID> {
+        self.pick_domain(tid, reg.clone(), self)
+    }
+
+    fn invoke_is_complete(&self, _cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        self.return_domain(tid, reg.clone());
+    }
+
+    fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        self.return_domain(tid, reg.clone());
+    }
+}
+
+//////// 
 
 // Consistent hashing with Guardrails pick
 pub struct ConsistentHashingGuardrailsPick {
