@@ -17,6 +17,7 @@ use iluvatar_library::char_map::Chars;
 use iluvatar_library::char_map::Value;
 use iluvatar_library::char_map::WorkerCharMap;
 use iluvatar_library::transaction::TransactionId;
+use rand::Rng;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -97,7 +98,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
         cmap: WorkerCharMap,
         cpu_core_utilization: Arc<CpuCoreUtilization>,
     ) -> FineLoadBalancing {
-        let config = if config.testing == 0 {
+        let config = if config.testing == 0 && config.preallocated_groups.groups.is_empty() {
             let generated_groups = config
                 .preallocated_groups
                 .generate_from_online_cpus()
@@ -133,6 +134,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 config.bpf_verbose,
                 config.sched_ext_migration == crate::worker_api::worker_config::SchedExtMigrationMethod::Kfunc,
                 config.task_ip_monitoring_enabled(),
+                config.srpt_trace_enabled,
             );
         }
 
@@ -211,6 +213,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                     FuncDomainMapper::new(system_domains.clone()),
                     config.clone(),
                 ))),
+                "power_of_two" => Some(Box::new(PowerOfTwo::new(fineloadbalancing_weak.clone()))),
                 "consistent_hashing_guardrailspick" => Some(Box::new(ConsistentHashingGuardrailsPick::new(
                     fineloadbalancing_weak.clone(),
                     config.clone(),
@@ -427,6 +430,104 @@ impl LoadBalancingPolicyTrait for DomainZero {
         let scheduled_invocations = &stats.domain_map.get_or_create(&0).scheduled_invocations;
 
         debug!( tid=%tid, fqdn=%fqdn, lbpolicy=%"domain_zero", scheduled_invocations=%scheduled_invocations.load(Ordering::Relaxed), "[finesched] assign_domain_to_function_request");
+    }
+}
+
+/// Sample two domains uniformly and choose the one with lower PELT-like
+/// utilization. If metrics are unavailable, dispatch to a random sampled
+/// domain so requests can still make progress.
+pub struct PowerOfTwo {
+    fineloadbalancing: FineLoadBalancingWeak,
+}
+
+impl PowerOfTwo {
+    pub fn new(fineloadbalancing: FineLoadBalancingWeak) -> Self {
+        Self { fineloadbalancing }
+    }
+
+    fn return_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return;
+        };
+        let Some(domain_id) = fineloadbalancing.stats.tid_map.get(tid).map(|entry| *entry) else {
+            return;
+        };
+        if let Some(domain) = fineloadbalancing
+            .system_domains
+            .immutable_clone()
+            .get(domain_id as usize)
+        {
+            domain.return_cpus_and_release(reg.cpus);
+        }
+    }
+}
+
+impl LoadBalancingPolicyTrait for PowerOfTwo {
+    fn assign_domain_to_function_request(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+    ) -> Option<SchedGroupID> {
+        let fineloadbalancing = self.fineloadbalancing.upgrade()?;
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        if domains.is_empty() {
+            return None;
+        }
+
+        let mut rng = rand::rng();
+        let first_index = rng.random_range(0..domains.len());
+        let second_index = if domains.len() > 1 {
+            let other_index = rng.random_range(0..domains.len() - 1);
+            Some(if other_index >= first_index { other_index + 1 } else { other_index })
+        } else {
+            None
+        };
+
+        let first = &domains[first_index];
+        let first_util = fineloadbalancing
+            .domain_pelt_like_utilization_percent(first.schedgroup_id())
+            .ok()
+            .flatten();
+        let (selected, second_id, second_util) = if let Some(second_index) = second_index {
+            let second = &domains[second_index];
+            let second_util = fineloadbalancing
+                .domain_pelt_like_utilization_percent(second.schedgroup_id())
+                .ok()
+                .flatten();
+            let selected = match (first_util, second_util) {
+                (Some(a), Some(b)) if a < b => first,
+                (Some(a), Some(b)) if b < a => second,
+                (Some(_), None) => first,
+                (None, Some(_)) => second,
+                _ if rng.random_bool(0.5) => first,
+                _ => second,
+            };
+            (selected, Some(second.schedgroup_id()), second_util)
+        } else {
+            (first, None, None)
+        };
+
+        selected.acquire_cores_oc(reg.cpus);
+        debug!(
+            tid=%tid,
+            fqdn=%reg.fqdn,
+            first_domain=%first.schedgroup_id(),
+            first_pelt_utilization=?first_util,
+            second_domain=?second_id,
+            second_pelt_utilization=?second_util,
+            selected_domain=%selected.schedgroup_id(),
+            lbpolicy=%"power_of_two",
+            "[finesched] selected domain from two random choices"
+        );
+        Some(selected.schedgroup_id())
+    }
+
+    fn invoke_is_complete(&self, _cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        self.return_domain(tid, reg);
+    }
+
+    fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        self.return_domain(tid, reg);
     }
 }
 

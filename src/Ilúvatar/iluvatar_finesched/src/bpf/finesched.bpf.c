@@ -29,6 +29,7 @@ bool cpu_boost_config = false;
 bool enable_timer_callback = false;
 bool use_switch_kfunc = true;
 bool enable_task_ip_monitoring = true;
+bool enable_srpt_trace = false;
 u32 nr_cpu_ids_config = 1;
 u32 nr_online_cpus_config = 1;
 u32 last_online_cpu_config = 0;
@@ -140,6 +141,8 @@ struct task_context {
 
     u64 running_start_time;
     u64 cpu_time_avg;
+    u64 runtime_ns;
+    u64 invocation_id;
 
     u64 last_wakeup_time;
     u64 wakeup_roundtrip_time_avg;
@@ -466,13 +469,20 @@ void BPF_STRUCT_OPS(finesched_set_cpumask, struct task_struct *p, const struct c
 }
 
 void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) {
-    struct cpu_ctx *cctx = try_lookup_cpu_ctx(bpf_get_smp_processor_id());
+    s32 cpu = bpf_get_smp_processor_id();
+    struct cpu_ctx *cctx = try_lookup_cpu_ctx(cpu);
     if (cctx) {
         update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
         cctx->pelt_like_running = 1;
     }
+    if (enable_srpt_trace) {
+        CgroupChrs_t *cgrp_chrs = get_cgroup_chrs_for_p(p);
+        SchedGroupChrs_t *sched_chrs = cgrp_chrs ? get_schedgroup_chrs(cgrp_chrs->gid) : NULL;
+        struct task_context *tctx = try_lookup_task_ctx(p);
+        emit_srpt_trace_event(true, p, cpu, cgrp_chrs, sched_chrs, tctx);
+    }
     task_stats_start_running(p);
-    refresh_core_metrics(bpf_get_smp_processor_id());
+    refresh_core_metrics(cpu);
 }
 void BPF_STRUCT_OPS(finesched_stopping, struct task_struct *p, bool runnable) {
     struct cpu_ctx *cctx = try_lookup_cpu_ctx(bpf_get_smp_processor_id());

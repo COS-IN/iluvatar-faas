@@ -261,6 +261,11 @@ pub struct FineLoadBalancingConfig {
     #[serde(default)]
     pub core_metrics_debug_every: u64,
 
+    /// Emit per-task SRPT enqueue and running events with BPF trace_printk.
+    /// Disabled by default; enabled events are visible in the kernel trace pipe.
+    #[serde(default)]
+    pub srpt_trace_enabled: bool,
+
     /// verbose logs from bpf skeleton load
     #[serde(default)]
     pub testing: u8,

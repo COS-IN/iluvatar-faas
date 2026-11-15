@@ -671,6 +671,12 @@ static __noinline void task_stats_stop_running(struct task_struct *p) {
 
         u64 cpu_time = current_time - start_time;
         if (cpu_time != 1) {
+            if (~0ULL - tctx->runtime_ns < cpu_time) {
+                tctx->runtime_ns = ~0ULL;
+            } else {
+                tctx->runtime_ns += cpu_time;
+            }
+
             u64 sleep_freq_avg = tctx->sleep_freq_avg;
             sleep_freq_avg = sleep_freq_avg == 0 ? 1 : sleep_freq_avg;
 
@@ -1541,6 +1547,53 @@ static __noinline u64 shorten_timeslice_by_dsqlen(u64 timeslice, u64 dsqid) {
     return shorten_timeslice_by_factor(timeslice, current_len);
 }
 
+static __always_inline u64 expected_task_runtime_ns(CgroupChrs_t *cgrp_chrs) {
+    if (!cgrp_chrs || cgrp_chrs->workerdur == 0) {
+        return 0;
+    }
+    return cgrp_chrs->workerdur > (~0ULL / NSEC_PER_MSEC)
+               ? ~0ULL
+               : cgrp_chrs->workerdur * NSEC_PER_MSEC;
+}
+
+static __always_inline u64 task_enqueue_vtime(CgroupChrs_t *cgrp_chrs,
+                                               SchedGroupChrs_t *sched_chrs,
+                                               struct task_context *tctx) {
+    if (!cgrp_chrs || !sched_chrs || !tctx || sched_chrs->prio != QEnqPrioSRPT) {
+        return tctx ? tctx->vtime : 0;
+    }
+
+    // Warm containers reuse Linux tasks across invocations. Reset this
+    // invocation-local CPU counter when the cgroup gets a new generation.
+    if (tctx->invocation_id != cgrp_chrs->invoke_ts) {
+        tctx->runtime_ns = 0;
+        tctx->invocation_id = cgrp_chrs->invoke_ts;
+    }
+
+    u64 expected_ns = expected_task_runtime_ns(cgrp_chrs);
+    if (expected_ns == 0) {
+        return tctx->vtime;
+    }
+    return expected_ns > tctx->runtime_ns ? expected_ns - tctx->runtime_ns : 0;
+}
+
+static __always_inline void emit_srpt_trace_event(bool is_running, struct task_struct *p, s32 cpu,
+                                                   CgroupChrs_t *cgrp_chrs,
+                                                   SchedGroupChrs_t *sched_chrs,
+                                                   struct task_context *tctx) {
+    if (!enable_srpt_trace || !p || !cgrp_chrs || !sched_chrs || !tctx ||
+        sched_chrs->prio != QEnqPrioSRPT) {
+        return;
+    }
+
+    u64 remaining_ns = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
+    if (is_running) {
+        bpf_printk("SRPT_RUN pid=%d cpu=%d rem_ns=%llu", p->pid, cpu, remaining_ns);
+    } else {
+        bpf_printk("SRPT_ENQ pid=%d cpu=%d rem_ns=%llu", p->pid, cpu, remaining_ns);
+    }
+}
+
 static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
                                                         bool to_highpriority_queue, bool fifo) {
     if (!p) {
@@ -1561,7 +1614,7 @@ static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
     u64 dsqid = to_highpriority_queue ? DSQ_PRIO_Q_PER_DOM_START : DSQ_REG_Q_PER_DOM_START;
     dsqid = dsqid + cgrp_chrs->gid;
 
-    if (fifo) {
+    if (fifo || sched_chrs->fifo != 0) {
         scx_bpf_dsq_insert(p, dsqid, timeslice, 0);
     } else {
         struct task_context *tctx = try_lookup_task_ctx(p);
@@ -1569,12 +1622,15 @@ static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
             return false;
         }
 
-        last_max_vtime = MAX(tctx->vtime, last_max_vtime);
+        u64 vtime = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
+        emit_srpt_trace_event(false, p, bpf_get_smp_processor_id(),
+                              cgrp_chrs, sched_chrs, tctx);
+        last_max_vtime = MAX(vtime, last_max_vtime);
         timeslice = timeslice / tctx->busypolling_factor;
 
-        scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, tctx->vtime, 0);
+        scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, vtime, 0);
         info("[task_stats][%s:%d] inserted to dsq(0x%x) vtime: %llu timeslice: %llu ", p->comm, p->pid, dsqid,
-             tctx->vtime, timeslice);
+             vtime, timeslice);
     }
 
     info("[task_stats][%s:%d] inserted to dsq(0x%x) ", p->comm, p->pid, dsqid);
@@ -1650,7 +1706,16 @@ static __noinline void enqueue_to_per_cpu_custom_dsq(struct task_struct *p) {
 
     cpu = least_loaded_local_dsq_cpu(p->cpus_ptr);
     dsqid = DSQ_PRIO_PER_CPU_START + cpu;
-    scx_bpf_dsq_insert(p, dsqid, timeslice, 0);
+    CgroupChrs_t *cgrp_chrs = get_cgroup_chrs_for_p(p);
+    SchedGroupChrs_t *sched_chrs = cgrp_chrs ? get_schedgroup_chrs(cgrp_chrs->gid) : NULL;
+    struct task_context *tctx = try_lookup_task_ctx(p);
+    if (sched_chrs && sched_chrs->fifo == 0 && sched_chrs->prio == QEnqPrioSRPT && tctx &&
+        cgrp_chrs->workerdur != 0) {
+        emit_srpt_trace_event(false, p, cpu, cgrp_chrs, sched_chrs, tctx);
+        scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx), 0);
+    } else {
+        scx_bpf_dsq_insert(p, dsqid, timeslice, 0);
+    }
     kick_cpus(p->cpus_ptr);
 
     info("[task_stats][%s:%d] inserted to dsq(0x%x) ", p->comm, p->pid, dsqid);

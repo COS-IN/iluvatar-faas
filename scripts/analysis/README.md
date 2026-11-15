@@ -83,6 +83,23 @@ scripts/analysis/cpu_sched.py /path/to/run \
   --output-dir /path/to/comparison
 ```
 
+`analyze_bursty_results.py` compares a non-bursty hzga-16 baseline with the full
+bursty trace and its centered burst window. It reports per-function E2E and
+execution means, and for FineSched it includes burst-window domain assignments,
+coassigned functions, and correlations with sampled assignment-time loads:
+
+```bash
+python3 scripts/analysis/analyze_bursty_results.py \
+  --baseline-cfs /path/to/hzga-16-cfs \
+  --baseline-finesched /path/to/hzga-16-domains-4 \
+  --bursty-cfs /path/to/bursty-cfs \
+  --bursty-finesched /path/to/bursty-domains-4 \
+  --output-dir /path/to/bursty-analysis
+```
+
+The burst duration defaults to 60 seconds and can be changed with
+`--burst-seconds`. The script writes Markdown, CSV, and JSON summaries.
+
 The profiler must cover the full invocation interval. The comparator selects
 only complete one-second perf/turbostat intervals between the first worker
 `Handling invocation request` and final `Invocation complete`, avoiding
@@ -131,3 +148,20 @@ python3 scripts/analysis/compare_chbl_domain_runs.py \
   --run 6=/path/to/chbl6 \
   --output-dir /path/to/comparison
 ```
+
+## HZGA trace comparison plots
+
+`plot_hzga_trace_comparison.py` compares CFS and FineSched with 1, 2, 4, and 6
+domains across the hzga-8, hzga-16, and hzga-32 experiment runs. It plots
+weighted warm end-to-end latency, direct worker queue wait, function execution,
+system CPU busy time, package energy per success, and package EDP. Latency
+plots use linear axes. The script also writes a CSV and JSON summary.
+
+```bash
+python3 scripts/analysis/plot_hzga_trace_comparison.py \
+  --output-dir /path/to/trace-comparison
+```
+
+The default input roots point to the completed runs under
+`/home/prateeks/code/results/`. Use `--results-8-16` or `--results-32` to
+select different result roots. Plotting requires Matplotlib.

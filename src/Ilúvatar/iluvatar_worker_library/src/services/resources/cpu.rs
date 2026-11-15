@@ -23,7 +23,7 @@ use parking_lot::{Mutex, RwLock};
 use std::collections::BTreeMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -36,6 +36,7 @@ lazy_static::lazy_static! {
 
 type Callback = Arc<dyn Fn() + Send + Sync>;
 const SCHED_EXT_POLICY: libc::c_int = 7;
+static NEXT_FINE_SCHED_INVOCATION_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct DomainCpuPermit {
     _cpu_permit: OwnedSemaphorePermit,
@@ -351,18 +352,26 @@ impl CpuResourceTracker {
             };
 
             // Update cgroup characteristics map shared with the scheduler.
-            let timestamp_epoch = 0;
-            let dur = fineloadbalancing.cmap.get(fqdn, Chars::CpuExecTime, Value::Avg);
+            // BPF task storage survives when a warm container reuses its Linux
+            // task. Use a fresh generation so SRPT can reset CPU runtime at
+            // each invocation boundary.
+            let invocation_id = NEXT_FINE_SCHED_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
+            let warm_dur = fineloadbalancing.cmap.get(fqdn, Chars::CpuWarmTime, Value::Avg);
+            let dur = if warm_dur.is_finite() && warm_dur > 0.0 {
+                warm_dur
+            } else {
+                fineloadbalancing.cmap.get(fqdn, Chars::CpuExecTime, Value::Avg)
+            };
             let dur_ms = (dur * 1000.0) as u64;
 
             // TODO: lookup arrival time and push
             let sched_domains = &fineloadbalancing.preallocated_domains;
-            sched_domains.update_cgroup_chrs(domain_id, timestamp_epoch, dur_ms, 0, cgroup_id);
+            sched_domains.update_cgroup_chrs(domain_id, invocation_id, dur_ms, 0, cgroup_id);
             if fineloadbalancing.config.sched_ext_migration == SchedExtMigrationMethod::Syscall {
                 self.set_cgroup_sched_ext(cgroup_id)?;
             }
 
-            debug!( tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, timestamp_epoch=%timestamp_epoch, domain_id=%domain_id, "[finesched] domain assigned to function cgroup");
+            debug!( tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, invocation_id=invocation_id, domain_id=%domain_id, "[finesched] domain assigned to function cgroup");
         }
         Ok(())
     }

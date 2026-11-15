@@ -155,6 +155,7 @@ fn enqprio_name_to_val(prio: &str) -> u32 {
         "plain" => QEnqPrioType_QEnqPrioPLAIN,
         "taskcount" => QEnqPrioType_QEnqPrioTaskCount,
         "invoc" => QEnqPrioType_QEnqPrioINVOC,
+        "srpt" | "srptover" | "srptreset" => QEnqPrioType_QEnqPrioSRPT,
         _ => QEnqPrioType_QEnqPrioUndef,
     }
 }

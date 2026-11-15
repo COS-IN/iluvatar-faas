@@ -161,9 +161,23 @@ def worker_data(result: Path) -> dict[str, Any]:
 def invocation_data(result: Path) -> dict[str, Any]:
     path = select_file(result, (), "output-*.csv")
     grouped: defaultdict[str, list[dict[str, float]]] = defaultdict(list)
+    burst_times: list[int] = []
+    burst_trace = next(
+        (candidate for candidate in sorted(result.glob("bursty-*.csv"))
+         if not candidate.name.endswith("-metadata.csv")),
+        None,
+    )
+    if burst_trace:
+        with burst_trace.open(newline="") as trace_stream:
+            burst_times = [int(row["invoke_time_ms"]) for row in csv.DictReader(trace_stream)]
+        trace_end = max(burst_times, default=0)
+        burst_start = trace_end / 2 - 30_000  # approximate centered 60-second burst
+        burst_end = trace_end / 2 + 30_000
     total = successes = cold = 0
+    all_burst_e2e: list[float] = []
+    all_burst_code: list[float] = []
     with path.open(newline="") as stream:
-        for row in csv.DictReader(stream):
+        for index, row in enumerate(csv.DictReader(stream)):
             total += 1
             successful = str(row.get("success", "")).lower() == "true"
             is_cold = str(row.get("was_cold", "")).lower() == "true"
@@ -174,6 +188,13 @@ def invocation_data(result: Path) -> dict[str, Any]:
             e2e = float(row["e2e_duration_us"]) / 1000.0
             worker = float(row["worker_duration_us"]) / 1000.0
             code = float(row["code_duration_sec"]) * 1000.0
+            in_burst = bool(
+                burst_times and index < len(burst_times)
+                and burst_start <= burst_times[index] < burst_end
+            )
+            if in_burst:
+                all_burst_e2e.append(e2e)
+                all_burst_code.append(code)
             grouped[row["function_name"]].append(
                 {
                     "e2e_ms": e2e,
@@ -182,14 +203,17 @@ def invocation_data(result: Path) -> dict[str, Any]:
                     "cpu_utilization": float(row["cpu_utilization"]),
                     "inside_worker_overhead_ms": max(0.0, worker - code),
                     "outside_worker_ms": max(0.0, e2e - worker),
+                    "in_burst": in_burst,
                 }
             )
 
     functions = {}
     all_e2e = []
+    all_code = []
     for function, rows in sorted(grouped.items()):
         e2e = [row["e2e_ms"] for row in rows]
         all_e2e.extend(e2e)
+        all_code.extend(row["code_ms"] for row in rows)
         functions[function] = {
             "warm_count": len(rows),
             "mean_e2e_ms": statistics.fmean(e2e),
@@ -205,6 +229,9 @@ def invocation_data(result: Path) -> dict[str, Any]:
                 row["inside_worker_overhead_ms"] for row in rows
             ),
             "mean_outside_worker_ms": statistics.fmean(row["outside_worker_ms"] for row in rows),
+            "burst_warm_count": sum(row["in_burst"] for row in rows),
+            "burst_mean_e2e_ms": statistics.fmean(row["e2e_ms"] for row in rows if row["in_burst"]) if any(row["in_burst"] for row in rows) else None,
+            "burst_mean_code_ms": statistics.fmean(row["code_ms"] for row in rows if row["in_burst"]) if any(row["in_burst"] for row in rows) else None,
         }
     return {
         "file": str(path),
@@ -214,6 +241,11 @@ def invocation_data(result: Path) -> dict[str, Any]:
         "cold": cold,
         "warm": successes - cold,
         "weighted_warm_mean_e2e_ms": statistics.fmean(all_e2e),
+        "weighted_warm_mean_code_ms": statistics.fmean(all_code),
+        "burst_window_seconds": 60 if burst_times else None,
+        "burst_mean_e2e_ms": statistics.fmean(all_burst_e2e) if all_burst_e2e else None,
+        "burst_mean_code_ms": statistics.fmean(all_burst_code) if all_burst_code else None,
+        "burst_warm_count": len(all_burst_e2e),
         "functions": functions,
     }
 
@@ -683,20 +715,35 @@ def single_markdown(run: dict[str, Any]) -> str:
         "## Warm invocation latency",
         "",
         "| Function | Count | Mean E2E (ms) | p50 (ms) | p95 (ms) | p99 (ms) | "
-        "Mean worker (ms) | Mean code (ms) | CPU utilization |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "Mean worker (ms) | Mean code (ms) | Burst N | Burst mean E2E (ms) | Burst mean exec (ms) | CPU utilization |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for function, metrics in sorted(invocations["functions"].items()):
+        burst_e2e = f"{metrics['burst_mean_e2e_ms']:.3f}" if metrics["burst_mean_e2e_ms"] is not None else "n/a"
+        burst_exec = f"{metrics['burst_mean_code_ms']:.3f}" if metrics["burst_mean_code_ms"] is not None else "n/a"
         lines.append(
             f"| {function} | {metrics['warm_count']} | {metrics['mean_e2e_ms']:.3f} | "
             f"{metrics['p50_e2e_ms']:.3f} | {metrics['p95_e2e_ms']:.3f} | "
             f"{metrics['p99_e2e_ms']:.3f} | {metrics['mean_worker_ms']:.3f} | "
-            f"{metrics['mean_code_ms']:.3f} | {metrics['mean_cpu_utilization']:.1f} |"
+            f"{metrics['mean_code_ms']:.3f} | {metrics['burst_warm_count']} | "
+            f"{burst_e2e} | {burst_exec} | "
+            f"{metrics['mean_cpu_utilization']:.1f} |"
         )
     lines.append(
         f"\nInvocation-weighted warm mean end-to-end latency: "
         f"**{invocations['weighted_warm_mean_e2e_ms']:.3f} ms**."
     )
+    lines.append(
+        f"\nInvocation-weighted warm mean function-execution latency: "
+        f"**{invocations['weighted_warm_mean_code_ms']:.3f} ms**."
+    )
+    if invocations.get("burst_window_seconds"):
+        lines.append(
+            f"\nApproximate centered {invocations['burst_window_seconds']}s burst window: "
+            f"**{invocations['burst_warm_count']} warm invocations**; invocation-weighted E2E "
+            f"**{invocations['burst_mean_e2e_ms']:.3f} ms**, exec "
+            f"**{invocations['burst_mean_code_ms']:.3f} ms**."
+        )
     if run["perf"]:
         perf = run["perf"]
         lines.extend([

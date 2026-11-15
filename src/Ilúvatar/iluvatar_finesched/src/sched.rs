@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use anyhow::bail;
 use anyhow::Context;
@@ -94,6 +95,7 @@ fn load_bpf_scheduler<'a>(
     verbose: u8,
     use_switch_kfunc: bool,
     task_ip_monitoring: bool,
+    srpt_trace_enabled: bool,
     topology: &SystemTopology,
     open_object: &'a mut MaybeUninit<OpenObject>,
 ) -> Result<(Link, BpfSkel<'a>, Vec<Link>)> {
@@ -120,6 +122,7 @@ fn load_bpf_scheduler<'a>(
         .bss_data
         .as_deref_mut()
         .context("BPF .bss map is unavailable")?;
+    bss.enable_srpt_trace = srpt_trace_enabled;
     bss.last_online_cpu_config = topology.last_online_cpu;
     for cpu in &topology.cpus {
         let dst = &mut bss.cpu_topology[cpu.id as usize];
@@ -165,6 +168,7 @@ pub fn load_bpf_scheduler_async(
     verbose: u8,
     use_switch_kfunc: bool,
     task_ip_monitoring: bool,
+    srpt_trace_enabled: bool,
 ) -> (Arc<AtomicBool>, JoinHandle<()>) {
     let topology = SystemTopology::discover(crate::bpf_intf::consts_MAX_CPUS)
         .expect("failed to discover CPU topology for FineSched");
@@ -189,6 +193,7 @@ pub fn load_bpf_scheduler_async(
             verbose,
             use_switch_kfunc,
             task_ip_monitoring,
+            srpt_trace_enabled,
             &topology,
             &mut open_object,
         )
@@ -207,7 +212,7 @@ pub fn load_bpf_scheduler_async(
                 uei_report!(&skel, uei);
             }
 
-            thread::sleep(std::time::Duration::from_millis(1000));
+            thread::sleep(Duration::from_millis(1000));
         }
     });
 
