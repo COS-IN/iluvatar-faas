@@ -1377,6 +1377,53 @@ static void __noinline refresh_core_metrics(s32 cpu) {
     metrics->pelt_like_util_avg = cctx->pelt_like_util_avg;
     metrics->pelt_like_last_update_ns = cctx->pelt_like_last_update_ns;
     metrics->pelt_like_running = cctx->pelt_like_running;
+    metrics->idle_while_loaded_ns = cctx->idle_while_loaded_ns;
+    metrics->idle_with_queued_events = cctx->idle_with_queued_events;
+    metrics->dispatch_calls = cctx->dispatch_calls;
+    metrics->dispatch_misses = cctx->dispatch_misses;
+    metrics->steal_attempts = cctx->steal_attempts;
+    metrics->steal_successes = cctx->steal_successes;
+    __builtin_memcpy(metrics->enq_latency_hist, cctx->enq_latency_hist, sizeof(metrics->enq_latency_hist));
+}
+
+static __always_inline void record_enq_latency(struct cpu_ctx *cctx, u64 latency_ns) {
+    if (!cctx)
+        return;
+    int bucket = 0;
+    if (latency_ns < 1000)
+        bucket = 0; // <1us
+    else if (latency_ns < 10000)
+        bucket = 1; // 1-10us
+    else if (latency_ns < 100000)
+        bucket = 2; // 10-100us
+    else if (latency_ns < 1000000)
+        bucket = 3; // 100us-1ms
+    else if (latency_ns < 10000000)
+        bucket = 4; // 1-10ms
+    else
+        bucket = 5; // >10ms
+    cctx->enq_latency_hist[bucket]++;
+}
+
+static __noinline bool has_runnable_backlog(s32 cpu) {
+    if (scx_bpf_dsq_nr_queued(DSQ_GLOBAL_Q_ID) > 0)
+        return true;
+
+    u64 max_dsqs = domains_count;
+    max_dsqs = max_dsqs > DSQ_MAX_COUNT ? DSQ_MAX_COUNT : max_dsqs;
+    u64 dsqid;
+
+    bpf_for(dsqid, DSQ_PRIO_Q_PER_DOM_START, DSQ_PRIO_Q_PER_DOM_START + max_dsqs) {
+        if (scx_bpf_dsq_nr_queued(dsqid) > 0)
+            return true;
+    }
+
+    bpf_for(dsqid, DSQ_REG_Q_PER_DOM_START, DSQ_REG_Q_PER_DOM_START + max_dsqs) {
+        if (scx_bpf_dsq_nr_queued(dsqid) > 0)
+            return true;
+    }
+
+    return false;
 }
 
 static __noinline u64 tasks_enqueued_on_bpfscheduler() {
@@ -1584,6 +1631,161 @@ static __always_inline u64 expected_task_runtime_ns(CgroupChrs_t *cgrp_chrs) {
                : cgrp_chrs->workerdur * NSEC_PER_MSEC;
 }
 
+static __always_inline struct cgroup_vtime_context *get_cgroup_vtime_context(
+    struct task_struct *p, bool create) {
+    if (!p || !p->cgroups || !p->cgroups->dfl_cgrp) {
+        return NULL;
+    }
+    u64 initial[9] = {};
+    // ema_par_q8 is the fifth field in the shared ABI.
+    initial[4] = 256;
+    return bpf_cgrp_storage_get(&cgrp_ctx_map, p->cgroups->dfl_cgrp,
+                                create ? initial : NULL,
+                                create ? BPF_LOCAL_STORAGE_GET_F_CREATE : 0);
+}
+
+static __always_inline u32 compute_bounded_weight(u64 remaining_wall_ns, u32 ema_par_q8);
+
+static __always_inline void cgroup_vtime_mark_enqueued(struct task_struct *p,
+                                                       struct task_context *tctx) {
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, true);
+    if (!ctx || !tctx || tctx->cgrp_runnable) {
+        return;
+    }
+    bpf_spin_lock(&ctx->lock);
+    if (!tctx->cgrp_runnable) {
+        ctx->nr_runnable++;
+        tctx->cgrp_runnable = true;
+    }
+    bpf_spin_unlock(&ctx->lock);
+}
+
+static __always_inline void cgroup_vtime_mark_running(struct task_struct *p,
+                                                      struct task_context *tctx) {
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, true);
+    if (!ctx || !tctx) {
+        return;
+    }
+    u64 now = bpf_ktime_get_ns();
+    bpf_spin_lock(&ctx->lock);
+    if (ctx->pending_invocation_id != 0 &&
+        ctx->pending_invocation_id != ctx->invocation_id) {
+        u64 wall_end = ctx->last_quiescent_ns > ctx->inv_start_ns
+                           ? ctx->last_quiescent_ns
+                           : now;
+        u64 wall_ns = ctx->inv_start_ns && wall_end > ctx->inv_start_ns
+                          ? wall_end - ctx->inv_start_ns
+                          : 0;
+        if (wall_ns != 0 && ctx->cpu_used_ns != 0) {
+            u64 observed = ctx->cpu_used_ns * 256 / wall_ns;
+            observed = MAX(256ULL, MIN(observed, (u64)MAX_PAR_Q8));
+            ctx->ema_par_q8 = ctx->ema_par_q8 == 0
+                                  ? (u32)observed
+                                  : (ctx->ema_par_q8 * 7 + (u32)observed) / 8;
+        }
+        ctx->invocation_id = ctx->pending_invocation_id;
+        ctx->inv_start_ns = now;
+        ctx->cpu_used_ns = 0;
+        ctx->last_quiescent_ns = 0;
+    } else if (ctx->inv_start_ns == 0) {
+        ctx->inv_start_ns = now;
+        ctx->cpu_used_ns = 0;
+    }
+    if (tctx->cgrp_runnable) {
+        if (ctx->nr_runnable > 0) {
+            ctx->nr_runnable--;
+        }
+        tctx->cgrp_runnable = false;
+    }
+    tctx->last_sum_exec = p->se.sum_exec_runtime;
+    bpf_spin_unlock(&ctx->lock);
+}
+
+static __always_inline void cgroup_vtime_mark_stopped(struct task_struct *p,
+                                                      struct task_context *tctx,
+                                                      bool runnable) {
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, false);
+    if (!ctx || !tctx) {
+        return;
+    }
+    u64 current_exec = p->se.sum_exec_runtime;
+    u64 delta = current_exec > tctx->last_sum_exec ? current_exec - tctx->last_sum_exec : 0;
+    u64 now = bpf_ktime_get_ns();
+    bpf_spin_lock(&ctx->lock);
+    ctx->cpu_used_ns += delta;
+    u64 elapsed = ctx->inv_start_ns && now > ctx->inv_start_ns ? now - ctx->inv_start_ns : 0;
+    u64 remaining = ctx->ewma_wall_ns > elapsed ? ctx->ewma_wall_ns - elapsed : 0;
+    // vtime accumulates physical core-time. Weight only affects the virtual
+    // deadline calculation at enqueue; wallclock remaining time is separate.
+    ctx->vtime += delta;
+    tctx->last_sum_exec = current_exec;
+    if (runnable && !tctx->cgrp_runnable) {
+        ctx->nr_runnable++;
+        tctx->cgrp_runnable = true;
+    }
+    bpf_spin_unlock(&ctx->lock);
+}
+
+static __always_inline void cgroup_vtime_mark_quiescent(struct task_struct *p,
+                                                        struct task_context *tctx) {
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, false);
+    if (!ctx || !tctx) {
+        return;
+    }
+    u64 now = bpf_ktime_get_ns();
+    bpf_spin_lock(&ctx->lock);
+    if (tctx->cgrp_runnable) {
+        if (ctx->nr_runnable > 0) {
+            ctx->nr_runnable--;
+        }
+        tctx->cgrp_runnable = false;
+    }
+    if (ctx->nr_runnable == 0) {
+        ctx->last_quiescent_ns = now;
+    }
+    bpf_spin_unlock(&ctx->lock);
+}
+
+static __always_inline u32 compute_bounded_weight(u64 remaining_wall_ns, u32 ema_par_q8) {
+    u64 par = MAX(256U, MIN(ema_par_q8, MAX_PAR_Q8));
+    u64 cap_wall_ns = SLICE_CAP_NS * 256 / par;
+    u64 remaining_core_ns = remaining_wall_ns > cap_wall_ns
+                                ? SLICE_CAP_NS + 1
+                                : remaining_wall_ns * par / 256;
+    if (remaining_core_ns == 0) {
+        return 1024;
+    }
+    u64 weight = SLICE_CAP_NS * 1024 / remaining_core_ns;
+    return (u32)MAX(1ULL, MIN(weight, 1024ULL));
+}
+
+static __always_inline bool container_enqueue_vtime(struct task_struct *p,
+                                                     struct task_context *tctx,
+                                                     u64 *vtime, u64 *timeslice) {
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, false);
+    if (!ctx || !tctx || !vtime || !timeslice) {
+        return false;
+    }
+
+    u64 now = bpf_ktime_get_ns();
+    bpf_spin_lock(&ctx->lock);
+    u64 elapsed = ctx->inv_start_ns && now > ctx->inv_start_ns ? now - ctx->inv_start_ns : 0;
+    u64 remaining = ctx->ewma_wall_ns > elapsed ? ctx->ewma_wall_ns - elapsed : 0;
+    u32 par_q8 = MAX(256U, MIN(ctx->ema_par_q8, MAX_PAR_Q8));
+    u32 weight = compute_bounded_weight(remaining, par_q8);
+    u64 cap_wall_ns = SLICE_CAP_NS * 256 / par_q8;
+    u64 request_ns = remaining > cap_wall_ns ? SLICE_CAP_NS : remaining * par_q8 / 256;
+    u64 min_vtime = last_max_vtime > MAX_LAG_NS ? last_max_vtime - MAX_LAG_NS : 0;
+    *vtime = MAX(ctx->vtime, min_vtime);
+    // EEVDF virtual deadline: v_d = v_e + r_i / w_f (100 is the base weight).
+    *vtime += request_ns * 100 / MAX(weight, 1U);
+    *timeslice = (remaining && remaining <= SHORT_THRESH_NS && par_q8 <= 256)
+                     ? SCX_SLICE_INF
+                     : DEFAULT_SLICE_NS;
+    bpf_spin_unlock(&ctx->lock);
+    return true;
+}
+
 static __always_inline u64 task_enqueue_vtime(CgroupChrs_t *cgrp_chrs,
                                                SchedGroupChrs_t *sched_chrs,
                                                struct task_context *tctx) {
@@ -1650,7 +1852,13 @@ static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
             return false;
         }
 
-        u64 vtime = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
+        u64 vtime = 0;
+        u64 container_slice = timeslice;
+        if (container_enqueue_vtime(p, tctx, &vtime, &container_slice)) {
+            timeslice = container_slice;
+        } else {
+            vtime = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
+        }
         emit_srpt_trace_event(false, p, bpf_get_smp_processor_id(),
                               cgrp_chrs, sched_chrs, tctx);
         last_max_vtime = MAX(vtime, last_max_vtime);

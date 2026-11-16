@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 lazy_static::lazy_static! {
   pub static ref CPU_CONCUR_WORKER_TID: TransactionId = "CPUConcurrencyMonitor".to_string();
@@ -366,6 +366,19 @@ impl CpuResourceTracker {
                 fineloadbalancing.cmap.get(fqdn, Chars::CpuExecTime, Value::Avg)
             };
             let dur_ms = (dur * 1000.0) as u64;
+            let dur_ns = (dur.max(0.0) * 1_000_000_000.0) as u64;
+
+            // Keep the container-level EEVDF estimate in wallclock units.
+            // FineSched learns CPU/wall parallelism in BPF, so the worker must
+            // not convert this estimate to aggregate core time.
+            if let Err(err) = iluvatar_finesched::update_cgroup_wall_estimate(
+                cgroup_id,
+                dur_ns,
+                invocation_id,
+            ) {
+                warn!(tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, error=%err,
+                      "[finesched] unable to update container wallclock estimate");
+            }
 
             // TODO: lookup arrival time and push
             let sched_domains = &fineloadbalancing.preallocated_domains;

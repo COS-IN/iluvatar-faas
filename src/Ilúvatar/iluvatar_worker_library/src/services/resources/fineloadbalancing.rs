@@ -146,6 +146,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 config.sched_ext_migration == crate::worker_api::worker_config::SchedExtMigrationMethod::Kfunc,
                 config.task_ip_monitoring_enabled(),
                 config.srpt_trace_enabled,
+                config.wc_metrics_enabled,
             );
         }
 

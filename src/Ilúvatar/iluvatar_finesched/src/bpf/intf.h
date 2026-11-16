@@ -81,6 +81,28 @@ enum consts {
     BUSYPOLLING_IP_VARIANCE_THRESHOLD = 16,
 };
 
+// Shared cgroup scheduling state. Keep this layout in sync with the Rust
+// CgroupVtimeContext used by the worker when updating ewma_wall_ns.
+#define MAX_LAG_NS        5000000ULL
+#define SLICE_CAP_NS      20000000ULL
+#define SHORT_THRESH_NS   5000000ULL
+#define DEFAULT_SLICE_NS  2000000ULL
+#define MAX_PAR_Q8        (64U * 256U)
+
+typedef struct CgroupVtimeContext {
+    u64 vtime;
+    u64 inv_start_ns;
+    u64 cpu_used_ns;
+    u64 ewma_wall_ns;
+    u32 ema_par_q8;
+    u32 nr_runnable;
+    u64 last_quiescent_ns;
+    u32 lock_word; // ABI placeholder for struct bpf_spin_lock in BPF C.
+    u32 reserved;
+    u64 invocation_id;
+    u64 pending_invocation_id;
+} CgroupVtimeContext_t;
+
 enum cpu_topology_flags {
     CPU_TOPOLOGY_POSSIBLE = (1U << 0),
     CPU_TOPOLOGY_ONLINE = (1U << 1),
@@ -175,6 +197,15 @@ typedef struct CoreSchedMetrics {
     u64 pelt_like_util_avg;
     u64 pelt_like_last_update_ns;
     u64 pelt_like_running;
+    // Work-conservation bubble metrics
+    u64 idle_while_loaded_ns;       // Total duration (ns) CPU idled while runnable tasks existed elsewhere
+    u64 idle_with_queued_events;    // Times CPU entered idle with work queued elsewhere
+    u64 dispatch_calls;             // Total finesched_dispatch invocations
+    u64 dispatch_misses;            // Dispatches that moved zero tasks
+    u64 steal_attempts;             // Work-steal attempts from neighbor domains
+    u64 steal_successes;            // Successful work steals
+    // Queue latency histogram (buckets: <1us, 1-10us, 10-100us, 100us-1ms, 1-10ms, >10ms)
+    u64 enq_latency_hist[6];
 } CoreSchedMetrics_t;
 
 // Group Characteristics Structure

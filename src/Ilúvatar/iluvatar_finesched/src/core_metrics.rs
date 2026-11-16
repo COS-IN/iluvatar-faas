@@ -14,6 +14,7 @@ use crate::bpf_intf::consts_MAX_CPU_UTIL;
 use crate::CoreSchedMetrics;
 
 pub const CORE_METRICS_MAP_PATH: &str = "/sys/fs/bpf/finesched_core_metrics";
+pub const BUBBLE_STATS_MAP_PATH: &str = "/sys/fs/bpf/finesched_bubble_stats";
 const CPU_SYSFS_ROOT: &str = "/sys/devices/system/cpu";
 const SCHED_EXT_STATE_PATH: &str = "/sys/kernel/sched_ext/state";
 const PELT_LIKE_HALF_LIFE_NS: u64 = 128_000_000;
@@ -39,6 +40,27 @@ pub struct CoreMetricSnapshot {
     pub frequency_mhz: f64,
     pub power_watts: Option<f64>,
     pub pelt_like_utilization_percent: f64,
+    pub idle_while_loaded_ns: u64,
+    pub idle_with_queued_events: u64,
+    pub dispatch_calls: u64,
+    pub dispatch_misses: u64,
+    pub steal_attempts: u64,
+    pub steal_successes: u64,
+    pub enq_latency_hist: [u64; 6],
+}
+
+/// Work-conservation and scheduling latency metrics for one logical CPU.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkConservationSnapshot {
+    pub cpu: u32,
+    pub idle_while_loaded_ns: u64,
+    pub idle_with_queued_events: u64,
+    pub bubble_loss_percent: f64,
+    pub dispatch_calls: u64,
+    pub dispatch_miss_rate: f64,
+    pub steal_attempts: u64,
+    pub steal_success_rate: f64,
+    pub latency_hist: Vec<(&'static str, u64)>,
 }
 
 /// Reads FineSched BPF metrics and Linux CPU-frequency sysfs values.
@@ -202,7 +224,74 @@ impl CoreMetricsReader {
             frequency_mhz: self.frequency_mhz(cpu)?,
             power_watts: self.power_watts(cpu)?,
             pelt_like_utilization_percent: Self::project_pelt_like_utilization(&metrics)?,
+            idle_while_loaded_ns: metrics.idle_while_loaded_ns,
+            idle_with_queued_events: metrics.idle_with_queued_events,
+            dispatch_calls: metrics.dispatch_calls,
+            dispatch_misses: metrics.dispatch_misses,
+            steal_attempts: metrics.steal_attempts,
+            steal_successes: metrics.steal_successes,
+            enq_latency_hist: metrics.enq_latency_hist,
         })
+    }
+
+    /// Read work-conservation and scheduling latency metrics for one logical CPU.
+    ///
+    /// If `elapsed_ns` is provided (> 0), `bubble_loss_percent` calculates the fraction of wall-clock time
+    /// this CPU spent in work-conservation bubbles: `(idle_while_loaded_ns / elapsed_ns) * 100.0`.
+    pub fn work_conservation_snapshot(
+        &self,
+        cpu: u32,
+        elapsed_ns: Option<u64>,
+    ) -> Result<WorkConservationSnapshot> {
+        let metrics = self.bpf_metrics(cpu)?;
+        let dispatch_miss_rate = if metrics.dispatch_calls > 0 {
+            metrics.dispatch_misses as f64 / metrics.dispatch_calls as f64
+        } else {
+            0.0
+        };
+        let steal_success_rate = if metrics.steal_attempts > 0 {
+            metrics.steal_successes as f64 / metrics.steal_attempts as f64
+        } else {
+            0.0
+        };
+        let bubble_loss_percent = if let Some(elapsed) = elapsed_ns {
+            if elapsed > 0 {
+                (metrics.idle_while_loaded_ns as f64 / elapsed as f64) * 100.0
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        let labels = ["<1µs", "1–10µs", "10–100µs", "100µs–1ms", "1–10ms", ">10ms"];
+        let latency_hist = labels
+            .iter()
+            .copied()
+            .zip(metrics.enq_latency_hist.iter().copied())
+            .collect();
+
+        Ok(WorkConservationSnapshot {
+            cpu,
+            idle_while_loaded_ns: metrics.idle_while_loaded_ns,
+            idle_with_queued_events: metrics.idle_with_queued_events,
+            bubble_loss_percent,
+            dispatch_calls: metrics.dispatch_calls,
+            dispatch_miss_rate,
+            steal_attempts: metrics.steal_attempts,
+            steal_success_rate,
+            latency_hist,
+        })
+    }
+
+    /// Read work-conservation summary across multiple CPUs.
+    pub fn work_conservation_summary(
+        &self,
+        cpus: &[u32],
+        elapsed_ns: Option<u64>,
+    ) -> Result<Vec<WorkConservationSnapshot>> {
+        cpus.iter()
+            .map(|&cpu| self.work_conservation_snapshot(cpu, elapsed_ns))
+            .collect()
     }
 
     fn bpf_metrics(&self, cpu: u32) -> Result<CoreSchedMetrics> {

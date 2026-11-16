@@ -1,4 +1,6 @@
 mod hashmaps;
+mod cgroup_vtime;
+pub use cgroup_vtime::{update_cgroup_wall_estimate, CGROUP_VTIME_MAP_PATH};
 pub use hashmaps::pin_map;
 pub use hashmaps::reuse_pinned_map;
 pub use hashmaps::rm_pinned_map;
@@ -13,6 +15,8 @@ pub use hashmaps::SCHED_GROUP_STATS_MAP_PATH;
 mod core_metrics;
 pub use core_metrics::CoreMetricSnapshot;
 pub use core_metrics::CoreMetricsReader;
+pub use core_metrics::WorkConservationSnapshot;
+pub use core_metrics::BUBBLE_STATS_MAP_PATH;
 pub use core_metrics::CORE_METRICS_MAP_PATH;
 
 mod hashmaps_safe;

@@ -3,12 +3,15 @@ use crate::pin_map;
 use crate::reuse_pinned_map;
 use crate::rm_pinned_map;
 use crate::topology::SystemTopology;
+use crate::BUBBLE_STATS_MAP_PATH;
 use crate::CORE_METRICS_MAP_PATH;
 use crate::CGROUP_MAP_PATH;
+use crate::CGROUP_VTIME_MAP_PATH;
 use crate::SCHED_GROUP_MAP_PATH;
 use crate::SCHED_GROUP_STATS_MAP_PATH;
 
 use std::mem::MaybeUninit;
+use std::fs;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -96,6 +99,7 @@ fn load_bpf_scheduler<'a>(
     use_switch_kfunc: bool,
     task_ip_monitoring: bool,
     srpt_trace_enabled: bool,
+    wc_metrics_enabled: bool,
     topology: &SystemTopology,
     open_object: &'a mut MaybeUninit<OpenObject>,
 ) -> Result<(Link, BpfSkel<'a>, Vec<Link>)> {
@@ -132,6 +136,7 @@ fn load_bpf_scheduler<'a>(
         .as_deref_mut()
         .context("BPF .bss map is unavailable")?;
     bss.enable_srpt_trace = srpt_trace_enabled;
+    bss.enable_wc_metrics = wc_metrics_enabled;
     bss.last_online_cpu_config = topology.last_online_cpu;
     for cpu in &topology.cpus {
         let dst = &mut bss.cpu_topology[cpu.id as usize];
@@ -151,14 +156,24 @@ fn load_bpf_scheduler<'a>(
     assert!(reuse_pinned_map(&mut skel.maps.gMap, SCHED_GROUP_MAP_PATH));
     assert!(reuse_pinned_map(&mut skel.maps.cMap, CGROUP_MAP_PATH));
     assert!(reuse_pinned_map(&mut skel.maps.gStats, SCHED_GROUP_STATS_MAP_PATH));
+    let cgrp_ctx_map_reused = reuse_pinned_map(&mut skel.maps.cgrp_ctx_map, CGROUP_VTIME_MAP_PATH);
 
     // load the scheduler
     let mut skel = scx_ops_load!(skel, finesched_ops, uei)?;
+
+    if !cgrp_ctx_map_reused {
+        if let Some(parent) = std::path::Path::new(CGROUP_VTIME_MAP_PATH).parent() {
+            fs::create_dir_all(parent).with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+        pin_map(&mut skel.maps.cgrp_ctx_map, CGROUP_VTIME_MAP_PATH);
+    }
 
     // coreMetrics is produced by the scheduler rather than the control-plane
     // hashmap object, so pin it after loading for policy-side readers.
     rm_pinned_map(CORE_METRICS_MAP_PATH);
     pin_map(&mut skel.maps.coreMetrics, CORE_METRICS_MAP_PATH);
+    rm_pinned_map(BUBBLE_STATS_MAP_PATH);
+    pin_map(&mut skel.maps.bubble_stats, BUBBLE_STATS_MAP_PATH);
 
     let perf_hw_cycles_links = if task_ip_monitoring {
         attach_perf_hw_cycles_event(&mut skel, topology)?
@@ -178,6 +193,7 @@ pub fn load_bpf_scheduler_async(
     use_switch_kfunc: bool,
     task_ip_monitoring: bool,
     srpt_trace_enabled: bool,
+    wc_metrics_enabled: bool,
 ) -> (Arc<AtomicBool>, JoinHandle<()>) {
     let topology = SystemTopology::discover(crate::bpf_intf::consts_MAX_CPUS)
         .expect("failed to discover CPU topology for FineSched");
@@ -203,6 +219,7 @@ pub fn load_bpf_scheduler_async(
             use_switch_kfunc,
             task_ip_monitoring,
             srpt_trace_enabled,
+            wc_metrics_enabled,
             &topology,
             &mut open_object,
         )
@@ -214,6 +231,8 @@ pub fn load_bpf_scheduler_async(
                 while !uei_exited!(&skel, uei) {}
                 uei_report!(&skel, uei);
                 rm_pinned_map(CORE_METRICS_MAP_PATH);
+                rm_pinned_map(BUBBLE_STATS_MAP_PATH);
+                rm_pinned_map(CGROUP_VTIME_MAP_PATH);
                 break;
             }
 

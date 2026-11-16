@@ -30,6 +30,7 @@ bool enable_timer_callback = false;
 bool use_switch_kfunc = true;
 bool enable_task_ip_monitoring = true;
 bool enable_srpt_trace = false;
+bool enable_wc_metrics = false;
 u32 nr_cpu_ids_config = 1;
 u32 nr_online_cpus_config = 1;
 u32 last_online_cpu_config = 0;
@@ -76,6 +77,30 @@ struct {
     __uint(value_size, sizeof(CgroupChrs_t));  // value: cgroup characteristics
 } cMapLast SEC(".maps");
 
+// Per-container state is shared by every sched_ext task in the container.
+// Userspace seeds ewma_wall_ns through the cgroup FD; the scheduler owns the
+// remaining fields while the invocation is active.
+struct cgroup_vtime_context {
+    u64 vtime;
+    u64 inv_start_ns;
+    u64 cpu_used_ns;
+    u64 ewma_wall_ns;
+    u32 ema_par_q8;
+    u32 nr_runnable;
+    u64 last_quiescent_ns;
+    struct bpf_spin_lock lock;
+    u32 reserved;
+    u64 invocation_id;
+    u64 pending_invocation_id;
+};
+
+struct {
+    __uint(type, BPF_MAP_TYPE_CGRP_STORAGE);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+    __type(key, int);
+    __type(value, struct cgroup_vtime_context);
+} cgrp_ctx_map SEC(".maps");
+
 /*
  * Per-CPU context.
  */
@@ -97,7 +122,35 @@ struct cpu_ctx {
     u64 pelt_like_util_avg;
     u64 pelt_like_last_update_ns;
     u64 pelt_like_running;
+
+    // Work-conservation bubble tracking
+    u64 idle_while_loaded_start;
+    u64 idle_while_loaded_ns;
+    u64 idle_with_queued_events;
+    u64 dispatch_calls;
+    u64 dispatch_misses;
+    u64 steal_attempts;
+    u64 steal_successes;
+
+    // Scheduling latency histogram
+    u64 enq_latency_hist[6];
 };
+
+// Compact per-CPU bubble stats map (32 bytes per CPU: key 0..3)
+// key 0: idle_with_queued_events, key 1: total_bubble_ns, key 2: successful_steals, key 3: steal_attempts
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 4);
+    __type(key, u32);
+    __type(value, u64);
+} bubble_stats SEC(".maps");
+
+static __always_inline void update_bubble_stat(u32 key, u64 add_val) {
+    u64 *val = bpf_map_lookup_elem(&bubble_stats, &key);
+    if (val) {
+        *val += add_val;
+    }
+}
 
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -139,6 +192,12 @@ __always_inline CoreSchedMetrics_t *try_lookup_core_metrics(s32 cpu) {
 struct task_context {
     u64 vtime;
 
+    // Container-level CPU accounting baseline and runnable membership.
+    u64 last_sum_exec;
+    u32 domain_id;
+    bool cgrp_runnable;
+    u32 cgrp_reserved;
+
     u64 running_start_time;
     u64 cpu_time_avg;
     u64 runtime_ns;
@@ -160,6 +219,9 @@ struct task_context {
     u64 ip_variance;
     u64 ip_sample_count;
     u64 busypolling_factor;
+
+    // Timestamp when task was enqueued to BPF scheduler (for latency tracking)
+    u64 enqueue_time;
 };
 
 // Per-CPU task context:
@@ -442,6 +504,16 @@ s32 BPF_STRUCT_OPS(finesched_select_cpu, struct task_struct *p, s32 prev_cpu, u6
 void BPF_STRUCT_OPS(finesched_enqueue, struct task_struct *p, u64 enq_flags) {
 
     struct task_context *tctx = try_lookup_task_ctx(p);
+    cgroup_vtime_mark_enqueued(p, tctx);
+    if (tctx) {
+        CgroupChrs_t *cgrp_chrs = get_cgroup_chrs_for_p(p);
+        if (cgrp_chrs) {
+            tctx->domain_id = cgrp_chrs->gid;
+        }
+    }
+    if (tctx && enable_wc_metrics) {
+        tctx->enqueue_time = bpf_ktime_get_ns();
+    }
 
     if (tctx && tctx->use_specified_cpus) {
         enqueue_to_per_cpu_custom_dsq(p);
@@ -462,14 +534,45 @@ void BPF_STRUCT_OPS(finesched_dispatch, s32 cpu, struct task_struct *prev) {
     s32 task_count = 1; // 2 or more makes it worse across aile
     s32 tasks_leftover = task_count;
     s32 dsq_id;
+    s32 total_moved = 0;
+
+    struct cpu_ctx *cctx = NULL;
+    if (enable_wc_metrics) {
+        cctx = try_lookup_cpu_ctx(cpu);
+        if (cctx) {
+            cctx->dispatch_calls++;
+        }
+    }
 
     dsq_id = cpu_to_domain_highpriority_dsqid(cpu);
-    tasks_leftover = tasks_leftover - move_from_custom_queue_to_local_dsq(dsq_id, tasks_leftover);
-    tasks_leftover = tasks_leftover - worksteal_from_neighbors_domain_queue(
-                                          /*from_highpriority_queue=*/true, cpu, tasks_leftover);
+    s32 moved = move_from_custom_queue_to_local_dsq(dsq_id, tasks_leftover);
+    tasks_leftover -= moved;
+    total_moved += moved;
 
-    move_from_per_cpu_custom_to_local_dsq(cpu, 1);
-    move_from_custom_queue_to_local_dsq(DSQ_GLOBAL_Q_ID, 1);
+    if (tasks_leftover > 0) {
+        if (enable_wc_metrics && cctx) {
+            cctx->steal_attempts++;
+            update_bubble_stat(3, 1);
+        }
+        s32 stolen = worksteal_from_neighbors_domain_queue(
+            /*from_highpriority_queue=*/true, cpu, tasks_leftover);
+        if (stolen > 0) {
+            if (enable_wc_metrics && cctx) {
+                cctx->steal_successes += stolen;
+                update_bubble_stat(2, stolen);
+            }
+            tasks_leftover -= stolen;
+            total_moved += stolen;
+        }
+    }
+
+    total_moved += move_from_per_cpu_custom_to_local_dsq(cpu, 1);
+    total_moved += move_from_custom_queue_to_local_dsq(DSQ_GLOBAL_Q_ID, 1);
+
+    if (enable_wc_metrics && cctx && total_moved == 0) {
+        cctx->dispatch_misses++;
+    }
+
     refresh_core_metrics(cpu);
 }
 
@@ -485,6 +588,25 @@ void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) {
     if (cctx) {
         update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
         cctx->pelt_like_running = 1;
+
+        if (enable_wc_metrics) {
+            u64 old_loaded_start = cctx->idle_while_loaded_start;
+            if (old_loaded_start != 0) {
+                u64 bubble_dur = bpf_ktime_get_ns() - old_loaded_start;
+                bool ret = __sync_bool_compare_and_swap(&cctx->idle_while_loaded_start, old_loaded_start, 0);
+                if (ret) {
+                    cctx->idle_while_loaded_ns += bubble_dur;
+                    update_bubble_stat(1, bubble_dur);
+                }
+            }
+
+            struct task_context *tctx = try_lookup_task_ctx(p);
+            if (tctx && tctx->enqueue_time != 0) {
+                u64 latency_ns = bpf_ktime_get_ns() - tctx->enqueue_time;
+                tctx->enqueue_time = 0;
+                record_enq_latency(cctx, latency_ns);
+            }
+        }
     }
     if (enable_srpt_trace) {
         CgroupChrs_t *cgrp_chrs = get_cgroup_chrs_for_p(p);
@@ -492,6 +614,7 @@ void BPF_STRUCT_OPS(finesched_running, struct task_struct *p) {
         struct task_context *tctx = try_lookup_task_ctx(p);
         emit_srpt_trace_event(true, p, cpu, cgrp_chrs, sched_chrs, tctx);
     }
+    cgroup_vtime_mark_running(p, try_lookup_task_ctx(p));
     task_stats_start_running(p);
     refresh_core_metrics(cpu);
 }
@@ -501,10 +624,12 @@ void BPF_STRUCT_OPS(finesched_stopping, struct task_struct *p, bool runnable) {
         update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
         cctx->pelt_like_running = 0;
     }
+    cgroup_vtime_mark_stopped(p, try_lookup_task_ctx(p), runnable);
     task_stats_stop_running(p);
     refresh_core_metrics(bpf_get_smp_processor_id());
 }
 void BPF_STRUCT_OPS(finesched_quiescent, struct task_struct *p, u64 deq_flags) {
+    cgroup_vtime_mark_quiescent(p, try_lookup_task_ctx(p));
     task_stats_sleeping(p);
 }
 
@@ -586,6 +711,16 @@ void BPF_STRUCT_OPS(finesched_update_idle, s32 cpu, bool idle) {
         update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
         cctx->pelt_like_running = 0;
         cctx->idle_start = bpf_ktime_get_ns();
+
+        if (enable_wc_metrics) {
+            if (has_runnable_backlog(cpu)) {
+                cctx->idle_while_loaded_start = cctx->idle_start;
+                cctx->idle_with_queued_events++;
+                update_bubble_stat(0, 1);
+            } else {
+                cctx->idle_while_loaded_start = 0;
+            }
+        }
     } else {
         update_pelt_like_cpu_util(cctx, bpf_ktime_get_ns());
         cctx->pelt_like_running = 1;
@@ -595,6 +730,18 @@ void BPF_STRUCT_OPS(finesched_update_idle, s32 cpu, bool idle) {
             bool ret = __sync_bool_compare_and_swap(&cctx->idle_start, old_clk, 0);
             if (ret) {
                 cctx->idle_time += duration;
+            }
+        }
+
+        if (enable_wc_metrics) {
+            u64 old_loaded_start = cctx->idle_while_loaded_start;
+            if (old_loaded_start != 0) {
+                u64 bubble_dur = bpf_ktime_get_ns() - old_loaded_start;
+                bool ret2 = __sync_bool_compare_and_swap(&cctx->idle_while_loaded_start, old_loaded_start, 0);
+                if (ret2) {
+                    cctx->idle_while_loaded_ns += bubble_dur;
+                    update_bubble_stat(1, bubble_dur);
+                }
             }
         }
     }

@@ -266,6 +266,10 @@ pub struct FineLoadBalancingConfig {
     #[serde(default)]
     pub srpt_trace_enabled: bool,
 
+    /// Enable work-conservation bubble tracking and scheduling latency histograms.
+    #[serde(default)]
+    pub wc_metrics_enabled: bool,
+
     /// verbose logs from bpf skeleton load
     #[serde(default)]
     pub testing: u8,
