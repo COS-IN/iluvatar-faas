@@ -108,6 +108,15 @@ fn load_bpf_scheduler<'a>(
     skel_builder.obj_builder.debug(verbose > 0);
     let mut skel = scx_ops_open!(skel_builder, open_object, finesched_ops, None)?;
 
+    // libbpf's object debug output does not by itself request the kernel's BPF
+    // verifier log. Configure each program before loading so bpf_verbose also
+    // captures verifier diagnostics when a program is rejected.
+    if verbose > 0 {
+        for mut program in skel.open_object_mut().progs_mut() {
+            program.set_log_level(verbose as u32);
+        }
+    }
+
     let data = skel
         .maps
         .data_data

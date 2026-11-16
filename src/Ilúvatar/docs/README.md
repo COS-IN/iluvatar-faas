@@ -8,6 +8,7 @@ Or start running [your own experiments](./LOAD.md) and making [your own function
 ## Contribute / Development
 
 For starters on how to extend or modify Ilúvatar, see the documentation on [development](./DEV.md).
+For sched_ext BPF load and verifier failures, see [BPF debugging](./debug-bpf.md).
 
 ## Ansible setup
 

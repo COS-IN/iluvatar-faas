@@ -1107,8 +1107,14 @@ static s32 __noinline create_global_dsq() {
 static u64 cpu_to_domain_id[MAX_CPUS] = {0};
 
 static __always_inline bool cpu_has_domain(s32 cpu) {
-    return cpu >= 0 && cpu < configured_cpu_id_count() &&
-           cpu_to_domain_id[cpu] != CPU_DOMAIN_UNASSIGNED && cpu_to_domain_id[cpu] < domains_count;
+    if (cpu < 0 || cpu >= configured_cpu_id_count()) {
+        return false;
+    }
+    u64 idx = (u32)cpu;
+    asm volatile("" : "+r"(idx));
+    idx &= (MAX_CPUS - 1);
+    u64 dom = cpu_to_domain_id[idx];
+    return dom != CPU_DOMAIN_UNASSIGNED && dom < domains_count;
 }
 
 static __noinline long callback_gmap_populate_cpu_to_domain_id_map_iter(struct bpf_map *map,
@@ -1125,7 +1131,7 @@ static __noinline long callback_gmap_populate_cpu_to_domain_id_map_iter(struct b
     s32 cpu;
     bpf_for(cpu, 0, configured_cpu_id_count()) {
         if (cpu_is_online(cpu) && bpf_cpumask_test_cpu(cpu, &chrs->corebitmask)) {
-            cpu_to_domain_id[cpu] = *gid;
+            cpu_to_domain_id[cpu & (MAX_CPUS - 1)] = *gid;
         }
     }
 
@@ -1136,7 +1142,7 @@ static s32 __noinline populate_cpu_to_domain_id_map() {
     s32 count;
     s32 cpu;
     bpf_for(cpu, 0, configured_cpu_id_count()) {
-        cpu_to_domain_id[cpu] = CPU_DOMAIN_UNASSIGNED;
+        cpu_to_domain_id[cpu & (MAX_CPUS - 1)] = CPU_DOMAIN_UNASSIGNED;
     }
     count =
         bpf_for_each_map_elem(&gMap, &callback_gmap_populate_cpu_to_domain_id_map_iter, &count, 0);
@@ -1151,11 +1157,19 @@ static __always_inline s32 clip_cpu_to_bounds(s32 cpu) {
 }
 
 static u64 __noinline cpu_to_domain_highpriority_dsqid(s32 cpu) {
-    return cpu_to_domain_id[cpu] + DSQ_PRIO_Q_PER_DOM_START;
+    cpu = clip_cpu_to_bounds(cpu);
+    u64 idx = (u32)cpu;
+    asm volatile("" : "+r"(idx));
+    idx &= (MAX_CPUS - 1);
+    return cpu_to_domain_id[idx] + DSQ_PRIO_Q_PER_DOM_START;
 }
 
 static u64 __noinline cpu_to_domain_regular_dsqid(s32 cpu) {
-    return cpu_to_domain_id[cpu] + DSQ_REG_Q_PER_DOM_START;
+    cpu = clip_cpu_to_bounds(cpu);
+    u64 idx = (u32)cpu;
+    asm volatile("" : "+r"(idx));
+    idx &= (MAX_CPUS - 1);
+    return cpu_to_domain_id[idx] + DSQ_REG_Q_PER_DOM_START;
 }
 
 struct global_reserved_corebitmask_kfunc_map_value {

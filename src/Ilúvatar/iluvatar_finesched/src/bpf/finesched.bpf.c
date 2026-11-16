@@ -431,7 +431,11 @@ s32 BPF_STRUCT_OPS(finesched_select_cpu, struct task_struct *p, s32 prev_cpu, u6
     if (cpu_has_domain(prev_cpu)) {
         return prev_cpu;
     }
-    return least_loaded_local_dsq_cpu(p->cpus_ptr);
+    s32 cpu = least_loaded_local_dsq_cpu(p->cpus_ptr);
+    if (cpu >= 0 && cpu_has_domain(cpu)) {
+        return cpu;
+    }
+    return prev_cpu;
 }
 
 // replinish the task @p timeslice
