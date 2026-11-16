@@ -40,6 +40,7 @@ mod topology;
 mod groups;
 pub use groups::PreAllocatedGroups;
 pub use groups::PreallocGroupsConfig;
+pub use groups::read_scx_available_cpus;
 pub use groups::SchedGroup;
 
 mod utils;

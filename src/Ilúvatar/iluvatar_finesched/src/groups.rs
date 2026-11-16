@@ -8,6 +8,7 @@ use crate::hashmaps_safe::SharedMapsRef;
 use crate::CgroupChrs;
 use crate::SchedGroupChrs;
 use crate::SchedGroupID;
+use crate::topology::parse_cpu_list;
 
 use crate::bpf_intf::*;
 use crate::utils::vec_to_cpumask;
@@ -46,6 +47,45 @@ impl PreallocGroupsConfig {
     /// Build an even domain partition from online CPU topology. SMT siblings
     /// are grouped by package/core before physical cores are divided.
     pub fn generate_from_online_cpus(&self) -> anyhow::Result<Self> {
+        self.generate_from_cpu_ids(&read_scx_available_cpus()?)
+    }
+
+    pub fn generate_from_cpus(&self, available_cpus: &[u32]) -> anyhow::Result<Self> {
+        self.generate_from_cpu_ids(available_cpus)
+    }
+
+    /// Keep only CPUs available to sched_ext. Empty groups are removed and the
+    /// surviving groups are compacted so their indices remain the BPF domain IDs.
+    pub fn constrain_to_cpus(&self, available_cpus: &[u32]) -> anyhow::Result<Self> {
+        let available: std::collections::HashSet<u32> = available_cpus.iter().copied().collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut groups = Vec::new();
+        for group in &self.groups {
+            let mut filtered = group.clone();
+            filtered.cores.retain(|cpu| available.contains(cpu));
+            filtered.cores.sort_unstable();
+            filtered.cores.dedup();
+            for cpu in &filtered.cores {
+                if !seen.insert(*cpu) {
+                    anyhow::bail!("CPU {cpu} appears in more than one FineSched domain");
+                }
+            }
+            if !filtered.cores.is_empty() {
+                groups.push(filtered);
+            }
+        }
+        if groups.is_empty() {
+            anyhow::bail!("FineSched domain map has no CPUs in the sched_ext cpuset");
+        }
+        Ok(Self {
+            domain_count: groups.len(),
+            timeslice_ms: self.timeslice_ms,
+            groups,
+        })
+    }
+
+    fn generate_from_cpu_ids(&self, available_cpus: &[u32]) -> anyhow::Result<Self> {
+        let available: std::collections::HashSet<u32> = available_cpus.iter().copied().collect();
         let cpu_root = Path::new("/sys/devices/system/cpu");
         let mut physical_cores: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
 
@@ -56,6 +96,9 @@ impl PreallocGroupsConfig {
             let Some(cpu) = name.strip_prefix("cpu").and_then(|id| id.parse::<u32>().ok()) else {
                 continue;
             };
+            if !available.contains(&cpu) {
+                continue;
+            }
 
             let online_path = entry.path().join("online");
             if fs::read_to_string(&online_path).is_ok_and(|state| state.trim() == "0") {
@@ -125,6 +168,24 @@ impl PreallocGroupsConfig {
     fn read_topology_id(path: &Path) -> anyhow::Result<u32> {
         Ok(fs::read_to_string(path)?.trim().parse()?)
     }
+}
+
+/// Read the effective sched_ext cpuset. Stock, unpartitioned installations use
+/// all online CPUs when neither dedicated slice exists.
+pub fn read_scx_available_cpus() -> anyhow::Result<Vec<u32>> {
+    for path in [
+        "/sys/fs/cgroup/scx.slice/cpuset.cpus.effective",
+        "/sys/fs/cgroup/scx-containers.slice/cpuset.cpus.effective",
+    ] {
+        if let Ok(value) = fs::read_to_string(path) {
+            let cpus = parse_cpu_list(&value)?;
+            if !cpus.is_empty() {
+                return Ok(cpus);
+            }
+        }
+    }
+    let online = fs::read_to_string("/sys/devices/system/cpu/online")?;
+    parse_cpu_list(&online)
 }
 
 /*

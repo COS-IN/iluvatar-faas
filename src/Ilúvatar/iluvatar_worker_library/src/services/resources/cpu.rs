@@ -218,6 +218,9 @@ impl CpuResourceTracker {
 
     fn cgroup_threads_file(cgroup_id: &str) -> Result<PathBuf> {
         let candidates = [
+            PathBuf::from("/sys/fs/cgroup/scx.slice")
+                .join(cgroup_id)
+                .join("cgroup.threads"),
             PathBuf::from("/sys/fs/cgroup").join(cgroup_id).join("cgroup.threads"),
             PathBuf::from("/sys/fs/cgroup/system.slice")
                 .join(cgroup_id)

@@ -175,7 +175,7 @@ fn discover_numa_node(cpu_root: &Path) -> Option<i32> {
     })
 }
 
-fn parse_cpu_list(value: &str) -> Result<Vec<u32>> {
+pub(crate) fn parse_cpu_list(value: &str) -> Result<Vec<u32>> {
     let mut cpus = Vec::new();
     for part in value.trim().split(',').filter(|part| !part.is_empty()) {
         if let Some((start, end)) = part.split_once('-') {

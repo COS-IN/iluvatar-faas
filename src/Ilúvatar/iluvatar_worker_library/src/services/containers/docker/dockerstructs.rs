@@ -107,8 +107,10 @@ impl DockerContainer {
     }
 
     fn cpu_stat(&self, stat_name: &String) -> u64 {
-        let cpustats_file = format!("/sys/fs/cgroup/system.slice/{}/cpu.stat", self.cgroup_id);
-        let filepath = Path::new(&cpustats_file);
+        let scx_path = format!("/sys/fs/cgroup/scx.slice/{}/cpu.stat", self.cgroup_id);
+        let system_path = format!("/sys/fs/cgroup/system.slice/{}/cpu.stat", self.cgroup_id);
+        let filepath = if Path::new(&scx_path).is_file() { &scx_path } else { &system_path };
+        let filepath = Path::new(filepath);
 
         if filepath.is_file() {
             let file = match File::open(filepath) {

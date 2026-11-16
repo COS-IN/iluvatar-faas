@@ -1103,7 +1103,13 @@ static s32 __noinline create_global_dsq() {
     return scx_bpf_create_dsq(dsqid, 0);
 }
 
+#define CPU_DOMAIN_UNASSIGNED (~0ULL)
 static u64 cpu_to_domain_id[MAX_CPUS] = {0};
+
+static __always_inline bool cpu_has_domain(s32 cpu) {
+    return cpu >= 0 && cpu < configured_cpu_id_count() &&
+           cpu_to_domain_id[cpu] != CPU_DOMAIN_UNASSIGNED && cpu_to_domain_id[cpu] < domains_count;
+}
 
 static __noinline long callback_gmap_populate_cpu_to_domain_id_map_iter(struct bpf_map *map,
                                                                         const void *key, void *val,
@@ -1128,6 +1134,10 @@ static __noinline long callback_gmap_populate_cpu_to_domain_id_map_iter(struct b
 
 static s32 __noinline populate_cpu_to_domain_id_map() {
     s32 count;
+    s32 cpu;
+    bpf_for(cpu, 0, configured_cpu_id_count()) {
+        cpu_to_domain_id[cpu] = CPU_DOMAIN_UNASSIGNED;
+    }
     count =
         bpf_for_each_map_elem(&gMap, &callback_gmap_populate_cpu_to_domain_id_map_iter, &count, 0);
 
@@ -1141,12 +1151,10 @@ static __always_inline s32 clip_cpu_to_bounds(s32 cpu) {
 }
 
 static u64 __noinline cpu_to_domain_highpriority_dsqid(s32 cpu) {
-    cpu = clip_cpu_to_bounds(cpu);
     return cpu_to_domain_id[cpu] + DSQ_PRIO_Q_PER_DOM_START;
 }
 
 static u64 __noinline cpu_to_domain_regular_dsqid(s32 cpu) {
-    cpu = clip_cpu_to_bounds(cpu);
     return cpu_to_domain_id[cpu] + DSQ_REG_Q_PER_DOM_START;
 }
 
@@ -1340,8 +1348,11 @@ static void __noinline refresh_core_metrics(s32 cpu) {
     stats_update_percpu_util(cctx);
 
     s32 local_len = local_and_custom_dsq_len_for(cpu);
-    u64 domain_len = scx_bpf_dsq_nr_queued(cpu_to_domain_highpriority_dsqid(cpu)) +
+    u64 domain_len = 0;
+    if (cpu_has_domain(cpu)) {
+        domain_len = scx_bpf_dsq_nr_queued(cpu_to_domain_highpriority_dsqid(cpu)) +
                      scx_bpf_dsq_nr_queued(cpu_to_domain_regular_dsqid(cpu));
+    }
     u64 busy = cctx->idle_start == 0 ? 1 : 0;
 
     metrics->local_dsq_len = local_len > 0 ? local_len : 0;
@@ -1392,11 +1403,11 @@ static bool __inline lookup_and_update_min_dsq_len(s32 current_cpu, s32 *old_cpu
 
 static __noinline s32 least_loaded_local_dsq_cpu(struct cpumask *bitmask) {
     s32 cpu;
-    s32 min_dsq_cpu = last_online_cpu_config;
+    s32 min_dsq_cpu = -1;
     s32 min_dsq_len = INT_MAX;
 
     bpf_for(cpu, 0, configured_cpu_id_count()) {
-        if (!cpu_is_online(cpu)) {
+        if (!cpu_is_online(cpu) || !cpu_has_domain(cpu)) {
             continue;
         }
         if (bitmask) {
@@ -1464,6 +1475,9 @@ static __noinline void worksteal_from_neighbors(s32 cpu, s32 task_count) {
 
 static __noinline s32 worksteal_from_neighbors_domain_queue(bool from_highpriority_queue, s32 cpu,
                                                             s32 task_count) {
+    if (!cpu_has_domain(cpu)) {
+        return 0;
+    }
     u64 dsqid = from_highpriority_queue ? cpu_to_domain_highpriority_dsqid(cpu)
                                         : cpu_to_domain_regular_dsqid(cpu);
     u64 starting_offset =
@@ -1653,8 +1667,11 @@ static __noinline bool enqueue_to_last_domain_queue(struct task_struct *p,
         return false;
     }
 
-    u64 dsqid = cpu_to_domain_regular_dsqid(last_online_cpu_config);
-    u64 domain_id = dsqid - DSQ_REG_Q_PER_DOM_START;
+    if (domains_count == 0) {
+        return false;
+    }
+    u64 domain_id = domains_count - 1;
+    u64 dsqid = DSQ_REG_Q_PER_DOM_START + domain_id;
 
     SchedGroupChrs_t *sched_chrs = get_schedgroup_chrs(domain_id);
     if (!sched_chrs) {
@@ -1705,6 +1722,10 @@ static __noinline void enqueue_to_per_cpu_custom_dsq(struct task_struct *p) {
     u64 dsqid;
 
     cpu = least_loaded_local_dsq_cpu(p->cpus_ptr);
+    if (cpu < 0) {
+        enqueue_to_global_queue(p, /*fifo=*/false);
+        return;
+    }
     dsqid = DSQ_PRIO_PER_CPU_START + cpu;
     CgroupChrs_t *cgrp_chrs = get_cgroup_chrs_for_p(p);
     SchedGroupChrs_t *sched_chrs = cgrp_chrs ? get_schedgroup_chrs(cgrp_chrs->gid) : NULL;

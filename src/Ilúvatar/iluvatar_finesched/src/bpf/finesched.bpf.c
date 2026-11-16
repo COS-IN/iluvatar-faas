@@ -428,7 +428,10 @@ int perf_sample_handler(struct bpf_perf_event_data *ctx) {
 s32 BPF_STRUCT_OPS(finesched_select_cpu, struct task_struct *p, s32 prev_cpu, u64 wake_flags) {
     // all tasks are enqueued on bpf_scheduler first
     check_dsqlen_of_each_dsq_for_tracing();
-    return prev_cpu;
+    if (cpu_has_domain(prev_cpu)) {
+        return prev_cpu;
+    }
+    return least_loaded_local_dsq_cpu(p->cpus_ptr);
 }
 
 // replinish the task @p timeslice
@@ -445,6 +448,10 @@ void BPF_STRUCT_OPS(finesched_enqueue, struct task_struct *p, u64 enq_flags) {
 }
 
 void BPF_STRUCT_OPS(finesched_dispatch, s32 cpu, struct task_struct *prev) {
+
+    if (!cpu_has_domain(cpu)) {
+        return;
+    }
 
     scx_bpf_cpuperf_set(cpu, SCX_CPUPERF_ONE);
 

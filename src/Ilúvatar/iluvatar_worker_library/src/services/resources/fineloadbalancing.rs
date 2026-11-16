@@ -9,6 +9,7 @@ use anyhow::Result;
 use iluvatar_finesched::load_bpf_scheduler_async;
 use iluvatar_finesched::CoreMetricsReader;
 use iluvatar_finesched::PreAllocatedGroups;
+use iluvatar_finesched::read_scx_available_cpus;
 use iluvatar_finesched::SchedGroupID;
 use iluvatar_finesched::SharedMapsDummy;
 use iluvatar_finesched::SharedMapsRef;
@@ -98,22 +99,32 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
         cmap: WorkerCharMap,
         cpu_core_utilization: Arc<CpuCoreUtilization>,
     ) -> FineLoadBalancing {
-        let config = if config.testing == 0 && config.preallocated_groups.groups.is_empty() {
-            let generated_groups = config
-                .preallocated_groups
-                .generate_from_online_cpus()
-                .unwrap_or_else(|error| panic!("failed to generate FineSched CPU domains: {error:#}"));
-            tracing::info!(
-                domain_count = generated_groups.groups.len(),
-                cpus_per_domain = ?generated_groups.groups.iter().map(|group| group.cores.len()).collect::<Vec<_>>(),
-                "[finesched] generated domains from online CPU topology"
-            );
-            let mut generated_config = (*config).clone();
-            generated_config.preallocated_groups = generated_groups;
-            Arc::new(generated_config)
+        let available_cpus = read_scx_available_cpus()
+            .unwrap_or_else(|error| panic!("failed to read sched_ext CPU set: {error:#}"));
+        let mut final_groups = if config.preallocated_groups.groups.is_empty() {
+            config.preallocated_groups
+                .generate_from_cpus(&available_cpus)
+                .unwrap_or_else(|error| panic!("failed to generate FineSched CPU domains: {error:#}"))
         } else {
-            config
+            config.preallocated_groups.clone()
         };
+        final_groups = final_groups
+            .constrain_to_cpus(&available_cpus)
+            .unwrap_or_else(|error| panic!("invalid FineSched CPU domain map: {error:#}"));
+        let domain_map: Vec<(usize, Vec<u32>)> = final_groups
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(domain, group)| (domain, group.cores.clone()))
+            .collect();
+        tracing::info!(
+            available_cpus = ?available_cpus,
+            domains = ?domain_map,
+            "[finesched] effective CPU domain map"
+        );
+        let mut normalized_config = (*config).clone();
+        normalized_config.preallocated_groups = final_groups;
+        let config = Arc::new(normalized_config);
 
         let scx_scheduler_sharedmaps: SharedMapsRef;
         if config.testing == 0 {
