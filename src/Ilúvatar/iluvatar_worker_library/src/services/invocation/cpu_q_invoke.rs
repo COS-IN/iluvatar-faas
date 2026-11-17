@@ -93,6 +93,9 @@ impl CpuQueueingInvoker {
             last_memory_warning: Mutex::new(now()),
             device_tput: DeviceTput::boxed(),
         });
+        let queue_preview = svc.queue.clone();
+        svc.cpu.set_cpu_queue_preview(Arc::downgrade(&queue_preview));
+        svc.cpu.set_container_manager(Arc::downgrade(&svc.cont_manager));
         cpu_tx.send(svc.clone())?;
         bypass_tx.send(svc.clone())?;
         debug!(tid = tid, "Created CpuQueueingInvoker");

@@ -5,7 +5,9 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::debug;
 
-use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::{
+    preview_heap_fqdn_counts, EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat,
+};
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::now;
 use std::collections::BinaryHeap;
@@ -41,6 +43,9 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         let r = self.invoke_queue.lock();
         let r = r.peek()?;
         Some(r.item.clone())
+    }
+    fn preview_fqdn_counts(&self, limit: usize) -> std::collections::HashMap<String, usize> {
+        preview_heap_fqdn_counts(&self.invoke_queue.lock(), limit)
     }
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         let mut invoke_queue = self.invoke_queue.lock();

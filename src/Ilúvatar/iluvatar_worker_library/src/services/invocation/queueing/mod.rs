@@ -10,7 +10,11 @@ use iluvatar_library::types::Utilization;
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
 use std::time::Duration;
-use std::{cmp::Ordering, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
+    sync::Arc,
+};
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 use tracing::{debug, error};
@@ -46,6 +50,18 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
     /// Returns an [EnqueuedInvocation] if there is anything in the queue, [None] otherwise.
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>>;
 
+    /// Count functions among the next `limit` items in the queue's dispatch order.
+    /// Implementations should inspect the queue without removing or reserving items.
+    fn preview_fqdn_counts(&self, limit: usize) -> HashMap<String, usize> {
+        let mut counts = HashMap::new();
+        if limit > 0 {
+            if let Some(item) = self.peek_queue() {
+                *counts.entry(item.registration.fqdn.clone()).or_default() += 1;
+            }
+        }
+        counts
+    }
+
     /// Destructively return the first item in the queue.
     /// This function will only be called if something is known to be un the queue, so using `unwrap` to remove an [Option] is safe.
     fn pop_queue(&self) -> Arc<EnqueuedInvocation>;
@@ -71,6 +87,22 @@ pub trait InvokerCpuQueuePolicy: Send + Sync {
             },
         )
     }
+}
+
+/// Build an FQDN count summary for the next entries in a priority heap.
+pub fn preview_heap_fqdn_counts<T: Ord + Clone>(
+    queue: &BinaryHeap<MinHeapEnqueuedInvocation<T>>,
+    limit: usize,
+) -> HashMap<String, usize> {
+    let mut queue = queue.clone();
+    let mut counts = HashMap::new();
+    for _ in 0..limit {
+        let Some(entry) = queue.pop() else {
+            break;
+        };
+        *counts.entry(entry.item.registration.fqdn.clone()).or_default() += 1;
+    }
+    counts
 }
 
 /// A trait for a device-specific queue.
@@ -240,6 +272,7 @@ impl EnqueuedInvocation {
     }
 }
 
+#[derive(Clone)]
 pub struct MinHeapEnqueuedInvocation<T: Ord> {
     pub item: Arc<EnqueuedInvocation>,
     priority: T,

@@ -1,5 +1,7 @@
 use super::fineloadbalancing::BuildFineLoadBalancing;
 use super::fineloadbalancing::FineLoadBalancing;
+use crate::services::containers::containermanager::ContainerManager;
+use crate::services::invocation::queueing::InvokerCpuQueuePolicy;
 use crate::services::invocation::Invoker;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::StatusConfig;
@@ -25,6 +27,7 @@ use std::fs::read_to_string;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::Weak;
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Instant;
@@ -86,7 +89,12 @@ impl CpuResourceTracker {
         fineloadbalancing_config: Option<Arc<FineLoadBalancingConfig>>,
     ) -> Result<Arc<Self>> {
         Self::new_with_core_utilization(
-            config, load_avg, tid, cmap, fineloadbalancing_config, CpuCoreUtilization::new(0),
+            config,
+            load_avg,
+            tid,
+            cmap,
+            fineloadbalancing_config,
+            CpuCoreUtilization::new(0),
         )
     }
 
@@ -133,7 +141,9 @@ impl CpuResourceTracker {
         let mut fineloadbalancing = None;
         if let Some(ref fineloadbalancing_config) = fineloadbalancing_config {
             fineloadbalancing = Some(FineLoadBalancing::build_arc_with_cpu_utilization(
-                fineloadbalancing_config.clone(), cmap, core_utilization.clone(),
+                fineloadbalancing_config.clone(),
+                cmap,
+                core_utilization.clone(),
             ));
         }
 
@@ -216,6 +226,18 @@ impl CpuResourceTracker {
         self.fineloadbalancing.is_some()
     }
 
+    pub fn set_cpu_queue_preview(&self, queue: Weak<dyn InvokerCpuQueuePolicy>) {
+        if let Some(fineloadbalancing) = &self.fineloadbalancing {
+            fineloadbalancing.set_cpu_queue_preview(queue);
+        }
+    }
+
+    pub fn set_container_manager(&self, manager: Weak<ContainerManager>) {
+        if let Some(fineloadbalancing) = &self.fineloadbalancing {
+            fineloadbalancing.set_container_manager(manager);
+        }
+    }
+
     fn cgroup_threads_file(cgroup_id: &str) -> Result<PathBuf> {
         let candidates = [
             PathBuf::from("/sys/fs/cgroup/scx.slice")
@@ -239,8 +261,8 @@ impl CpuResourceTracker {
         }
 
         let threads_file = Self::cgroup_threads_file(cgroup_id)?;
-        let threads = read_to_string(&threads_file)
-            .with_context(|| format!("Failed to read {}", threads_file.display()))?;
+        let threads =
+            read_to_string(&threads_file).with_context(|| format!("Failed to read {}", threads_file.display()))?;
         let sched_param = libc::sched_param { sched_priority: 0 };
         let mut switched = 0;
 
@@ -371,11 +393,7 @@ impl CpuResourceTracker {
             // Keep the container-level EEVDF estimate in wallclock units.
             // FineSched learns CPU/wall parallelism in BPF, so the worker must
             // not convert this estimate to aggregate core time.
-            if let Err(err) = iluvatar_finesched::update_cgroup_wall_estimate(
-                cgroup_id,
-                dur_ns,
-                invocation_id,
-            ) {
+            if let Err(err) = iluvatar_finesched::update_cgroup_wall_estimate(cgroup_id, dur_ns, invocation_id) {
                 warn!(tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, error=%err,
                       "[finesched] unable to update container wallclock estimate");
             }
@@ -483,7 +501,13 @@ pub fn get_cpu_mon(
     tid: &TransactionId,
 ) -> Result<CpuMonitor> {
     get_cpu_mon_with_core_utilization(
-        config, ring_buff, num_cpus, signal, invoker, tid, CpuCoreUtilization::new(num_cpus as usize),
+        config,
+        ring_buff,
+        num_cpus,
+        signal,
+        invoker,
+        tid,
+        CpuCoreUtilization::new(num_cpus as usize),
     )
 }
 
@@ -508,7 +532,9 @@ pub struct CpuCoreUtilization {
 
 impl CpuCoreUtilization {
     pub fn new(cpu_count: usize) -> Arc<Self> {
-        Arc::new(Self { values: RwLock::new(vec![None; cpu_count]) })
+        Arc::new(Self {
+            values: RwLock::new(vec![None; cpu_count]),
+        })
     }
 
     fn update(&self, values: &BTreeMap<u32, f64>) {
@@ -758,7 +784,9 @@ impl CPUUtilInstant {
             if label != "cpu" && cpu_id.is_none() {
                 continue;
             }
-            let values = fields.map(str::parse::<f64>).collect::<std::result::Result<Vec<_>, _>>()
+            let values = fields
+                .map(str::parse::<f64>)
+                .collect::<std::result::Result<Vec<_>, _>>()
                 .with_context(|| format!("failed to parse /proc/stat CPU row for {label} (transaction {tid})"))?;
             if label == "cpu" {
                 aggregate = Some(values);

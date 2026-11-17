@@ -1,6 +1,9 @@
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy};
 use anyhow::Result;
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 use tracing::debug;
 
 /// This implements a simple FCFS queue for all invocations
@@ -33,6 +36,14 @@ impl InvokerCpuQueuePolicy for Queueless {
             return Some(r.clone());
         }
         None
+    }
+    fn preview_fqdn_counts(&self, limit: usize) -> HashMap<String, usize> {
+        let queue = self.async_queue.read();
+        let mut counts = HashMap::new();
+        for item in queue.iter().take(limit) {
+            *counts.entry(item.registration.fqdn.clone()).or_default() += 1;
+        }
+        counts
     }
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         self.async_queue.write().pop_front().unwrap()

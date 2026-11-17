@@ -1,4 +1,6 @@
-use super::{EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat};
+use super::{
+    preview_heap_fqdn_counts, EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation, MinHeapFloat,
+};
 use crate::services::containers::{containermanager::ContainerManager, structs::ContainerState};
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
@@ -34,6 +36,9 @@ impl InvokerCpuQueuePolicy for ColdPriorityQueue {
         let r = r.peek()?;
         let r = r.item.clone();
         Some(r)
+    }
+    fn preview_fqdn_counts(&self, limit: usize) -> std::collections::HashMap<String, usize> {
+        preview_heap_fqdn_counts(&self.invoke_queue.lock(), limit)
     }
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
         let mut invoke_queue = self.invoke_queue.lock();

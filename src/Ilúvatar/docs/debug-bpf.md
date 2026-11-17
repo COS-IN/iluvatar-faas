@@ -14,11 +14,6 @@ Set `fineloadbalancing.bpf_verbose` to `1` in the worker configuration:
 }
 ```
 
-For experiment runs, check both `requested_worker_config.json` and
-`worker_config.json` in the run directory. The value in the generated worker
-configuration is the one that matters. Rebuild the worker after changing the
-loader: `bpf_verbose` enables libbpf debug output, and the loader must also set
-a nonzero verifier log level on each open BPF program before loading it.
 
 ## Find the verifier output
 
@@ -54,8 +49,7 @@ R1 unbounded memory access
 
 The rejected access was `cpu_to_domain_id[cpu]` in `cpu_has_domain()`. The code
 checked the runtime CPU count, but the verifier could not prove that the array
-index was below the fixed `MAX_CPUS` array size. This was a verifier rejection,
-not evidence by itself of missing host capabilities. Keep an explicit,
+index was below the fixed `MAX_CPUS` array size.  Keep an explicit,
 verifier-visible bound on the exact index used for the array access (the
 runtime CPU-set check is still needed to reject CPUs outside the configured
 range).
