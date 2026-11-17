@@ -93,21 +93,58 @@ pub fn classify_cpu_workload_phase(
     }
 }
 
-/// Sample two domains uniformly and choose the one with lower PELT-like
-/// utilization. If metrics are unavailable, dispatch to a random sampled
-/// domain so requests can still make progress.
+/// Choose between two domains using lower PELT-like utilization. The random
+/// variant samples a fresh pair per invocation; the deterministic variant
+/// hashes the function FQDN to a stable pair. If metrics are unavailable, the
+/// random variant falls back to a random candidate and the deterministic one
+/// chooses its first candidate.
+#[derive(Clone, Copy)]
+enum PowerOfTwoCandidates {
+    Random,
+    DeterministicFqdn,
+}
+
 pub struct PowerOfTwo {
     fineloadbalancing: FineLoadBalancingWeak,
+    candidates: PowerOfTwoCandidates,
 }
 
 impl PowerOfTwo {
     pub fn new(fineloadbalancing: FineLoadBalancingWeak) -> Self {
-        Self { fineloadbalancing }
+        Self {
+            fineloadbalancing,
+            candidates: PowerOfTwoCandidates::Random,
+        }
+    }
+
+    pub fn new_deterministic(fineloadbalancing: FineLoadBalancingWeak) -> Self {
+        Self {
+            fineloadbalancing,
+            candidates: PowerOfTwoCandidates::DeterministicFqdn,
+        }
     }
 
     fn assign_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) -> Option<SchedGroupID> {
         let fineloadbalancing = self.fineloadbalancing.upgrade()?;
-        select_power_of_two_domain(&fineloadbalancing, tid, reg, None, None, None, false, "power_of_two")
+        let deterministic_key = match self.candidates {
+            PowerOfTwoCandidates::Random => None,
+            PowerOfTwoCandidates::DeterministicFqdn => Some(reg.fqdn.clone()),
+        };
+        let policy = match self.candidates {
+            PowerOfTwoCandidates::Random => "power_of_two_rand",
+            PowerOfTwoCandidates::DeterministicFqdn => "power_of_two_det",
+        };
+        select_power_of_two_domain(
+            &fineloadbalancing,
+            tid,
+            reg,
+            deterministic_key.as_deref(),
+            None,
+            None,
+            None,
+            false,
+            policy,
+        )
     }
 }
 
@@ -171,6 +208,7 @@ impl LoadBalancingPolicyTrait for PowerOfTwoPeek {
             &fineloadbalancing,
             tid,
             reg,
+            None,
             next_invocation,
             current_work,
             next_work,
@@ -221,6 +259,7 @@ fn select_power_of_two_domain(
     fineloadbalancing: &FineLoadBalancingStruct,
     tid: &TransactionId,
     reg: Arc<RegisteredFunction>,
+    deterministic_key: Option<&str>,
     next_invocation: Option<(String, u32)>,
     current_work: Option<f64>,
     next_work: Option<f64>,
@@ -233,16 +272,21 @@ fn select_power_of_two_domain(
     }
 
     let mut rng = rand::rng();
-    let first_index = rng.random_range(0..domains.len());
-    let second_index = if domains.len() > 1 {
-        let other_index = rng.random_range(0..domains.len() - 1);
-        Some(if other_index >= first_index {
-            other_index + 1
-        } else {
-            other_index
-        })
+    let (first_index, second_index) = if let Some(key) = deterministic_key {
+        deterministic_domain_choices(key, domains.len())
     } else {
-        None
+        let first_index = rng.random_range(0..domains.len());
+        let second_index = if domains.len() > 1 {
+            let other_index = rng.random_range(0..domains.len() - 1);
+            Some(if other_index >= first_index {
+                other_index + 1
+            } else {
+                other_index
+            })
+        } else {
+            None
+        };
+        (first_index, second_index)
     };
 
     let first = &domains[first_index];
@@ -262,21 +306,11 @@ fn select_power_of_two_domain(
             (Some(a), Some(b), true) if a > b => first,
             (Some(a), Some(b), true) if b > a => second,
             (Some(_), Some(_), _) => {
-                if rng.random_bool(0.5) {
-                    first
-                } else {
-                    second
-                }
+                deterministic_key.map_or_else(|| if rng.random_bool(0.5) { first } else { second }, |_| first)
             },
             (Some(_), None, false) => first,
             (None, Some(_), false) => second,
-            _ => {
-                if rng.random_bool(0.5) {
-                    first
-                } else {
-                    second
-                }
-            },
+            _ => deterministic_key.map_or_else(|| if rng.random_bool(0.5) { first } else { second }, |_| first),
         };
         (selected, Some(second.schedgroup_id()), second_util)
     } else {
@@ -297,10 +331,33 @@ fn select_power_of_two_domain(
         second_domain=?second_id,
         second_pelt_utilization=?second_util,
         selected_domain=%selected.schedgroup_id(),
+        candidate_selection=if deterministic_key.is_some() { "fqdn_hash" } else { "random" },
         lbpolicy=%policy,
-        "[finesched] selected domain from two random choices"
+        "[finesched] selected domain from two choices"
     );
     Some(selected.schedgroup_id())
+}
+
+/// Map a stable key to two distinct domain candidates. The two FNV-1a seeds
+/// provide independent candidate positions; a collision is advanced by one.
+fn deterministic_domain_choices(key: &str, domain_count: usize) -> (usize, Option<usize>) {
+    if domain_count <= 1 {
+        return (0, None);
+    }
+
+    fn fnv1a(key: &str, seed: u64) -> u64 {
+        key.as_bytes().iter().fold(seed, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    }
+
+    let count = domain_count as u64;
+    let first = (fnv1a(key, 0xcbf2_9ce4_8422_2325) % count) as usize;
+    let mut second = (fnv1a(key, 0x8422_2325_cbf2_9ce4) % count) as usize;
+    if second == first {
+        second = (second + 1) % domain_count;
+    }
+    (first, Some(second))
 }
 
 fn return_power_of_two_domain(
