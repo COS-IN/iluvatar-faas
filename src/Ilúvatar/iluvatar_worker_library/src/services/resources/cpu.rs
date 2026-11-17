@@ -23,6 +23,7 @@ use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::DroppableMovableTrait;
 use iluvatar_library::{bail_error, threading};
 use parking_lot::{Mutex, RwLock};
+use rand::Rng;
 use std::collections::BTreeMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
@@ -401,7 +402,59 @@ impl CpuResourceTracker {
             };
 
             let lbpolicy = &fineloadbalancing.lbpolicy;
-            let domain_id = lbpolicy.assign_domain_to_function_request(tid, reg.clone());
+            let mut domain_id = lbpolicy.assign_domain_to_function_request(tid, reg.clone());
+            if let Some(selected_id) = domain_id {
+                let config = &fineloadbalancing.config;
+                let threshold = config.burst_threshold;
+                if config.burst_mode == crate::worker_api::worker_config::FineSchedBurstMode::Spillover
+                    && threshold.is_finite()
+                    && (0.0..=1.0).contains(&threshold)
+                {
+                    let selected_load = fineloadbalancing
+                        .domain_pelt_like_utilization_percent(selected_id)
+                        .ok()
+                        .flatten();
+                    if selected_load.is_some_and(|load| load / 100.0 >= threshold) {
+                        let domains = fineloadbalancing.system_domains.immutable_clone();
+                        let mut candidates = domains
+                            .iter()
+                            .filter(|domain| domain.schedgroup_id() != selected_id)
+                            .filter_map(|domain| {
+                                fineloadbalancing
+                                    .domain_pelt_like_utilization_percent(domain.schedgroup_id())
+                                    .ok()
+                                    .flatten()
+                                    .map(|load| (domain.schedgroup_id(), load))
+                            })
+                            .collect::<Vec<_>>();
+                        // Generic spillover checks only the base policy's selected domain;
+                        // it does not inspect all candidates (for example, Po2's other
+                        // home domain). It can therefore override policy affinity even
+                        // when that policy had another acceptable candidate.
+                        // TODO: Use cpu_workload_phase() and queued FQDN concentration
+                        // to predict burst phases before a selected domain saturates.
+                        let probes = config.burst_probes.max(1).min(candidates.len());
+                        let mut rng = rand::rng();
+                        for index in 0..probes {
+                            let swap_index = rng.random_range(index..candidates.len());
+                            candidates.swap(index, swap_index);
+                        }
+                        let alternate = candidates[..probes]
+                            .iter()
+                            .min_by(|left, right| left.1.total_cmp(&right.1))
+                            .map(|candidate| candidate.0);
+                        if let Some(alternate_id) = alternate {
+                            if lbpolicy.move_reservation(&reg, selected_id, alternate_id) {
+                                debug!(tid=%tid, fqdn=%fqdn, selected_domain=%selected_id,
+                                    selected_pelt_utilization=?selected_load,
+                                    alternate_domain=%alternate_id, threshold,
+                                    "[finesched] generic burst spillover rerouted invocation");
+                                domain_id = Some(alternate_id);
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(domain_id) = domain_id {
                 // Capture stats for the domain assignment.
                 debug!( tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] inserting to tid map");

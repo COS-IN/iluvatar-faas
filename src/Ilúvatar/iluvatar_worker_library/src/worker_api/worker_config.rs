@@ -274,6 +274,18 @@ pub struct FineLoadBalancingConfig {
     #[serde(default = "default_chbl_cpu_tdp_watts")]
     pub chbl_cpu_tdp_watts: f64,
 
+    /// Optional generic rerouting when the selected domain reaches the burst threshold.
+    #[serde(default)]
+    pub burst_mode: FineSchedBurstMode,
+
+    /// PELT utilization fraction (0 to 1) that triggers generic spillover.
+    #[serde(default = "default_finesched_burst_threshold")]
+    pub burst_threshold: f64,
+
+    /// Number of randomly sampled alternate domains considered for spillover.
+    #[serde(default = "default_finesched_burst_probes")]
+    pub burst_probes: usize,
+
     #[serde(default)]
     pub iat_bucket_size: usize,
 
@@ -313,6 +325,22 @@ fn default_chbl_thresh() -> f32 {
 
 fn default_chbl_cpu_tdp_watts() -> f64 {
     0.0
+}
+
+fn default_finesched_burst_threshold() -> f64 {
+    0.8
+}
+
+fn default_finesched_burst_probes() -> usize {
+    2
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FineSchedBurstMode {
+    #[default]
+    Disabled,
+    Spillover,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq, Eq)]

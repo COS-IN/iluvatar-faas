@@ -40,6 +40,17 @@ PERF_EVENTS = (
 )
 
 
+def json_safe(value: Any) -> Any:
+    """Replace undefined numeric metrics with JSON null values."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    return value
+
+
 def timestamp(value: str) -> datetime:
     """Parse timestamps onto one local, timezone-naive comparison timeline."""
     return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
@@ -831,7 +842,9 @@ def main() -> int:
         output = args.output_dir.resolve()
         output.mkdir(parents=True, exist_ok=True)
         (output / report_name).write_text(report + "\n")
-        (output / json_name).write_text(json.dumps(data, indent=2, allow_nan=False) + "\n")
+        (output / json_name).write_text(
+            json.dumps(json_safe(data), indent=2, allow_nan=False) + "\n"
+        )
         print(f"Wrote {output / report_name}")
         print(f"Wrote {output / json_name}")
     return 0

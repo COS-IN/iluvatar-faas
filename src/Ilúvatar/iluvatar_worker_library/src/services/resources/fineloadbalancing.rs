@@ -164,6 +164,19 @@ impl LoadBalancingPolicyTrait for PowerOfTwo {
     fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
     }
+
+    fn move_reservation(&self, reg: &RegisteredFunction, from: SchedGroupID, to: SchedGroupID) -> bool {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return false;
+        };
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        let (Some(source), Some(target)) = (domains.get(from as usize), domains.get(to as usize)) else {
+            return false;
+        };
+        source.return_cpus_and_release(reg.cpus);
+        target.acquire_cores_oc(reg.cpus);
+        true
+    }
 }
 
 /// Power of two choices that uses the next queued invocation's estimated CPU
@@ -243,6 +256,19 @@ impl LoadBalancingPolicyTrait for PowerOfTwoPeek {
     fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
     }
+
+    fn move_reservation(&self, reg: &RegisteredFunction, from: SchedGroupID, to: SchedGroupID) -> bool {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return false;
+        };
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        let (Some(source), Some(target)) = (domains.get(from as usize), domains.get(to as usize)) else {
+            return false;
+        };
+        source.return_cpus_and_release(reg.cpus);
+        target.acquire_cores_oc(reg.cpus);
+        true
+    }
 }
 
 /// Estimate the queued invocation's CPU demand from its CPU request and the
@@ -313,7 +339,7 @@ fn select_power_of_two_domain(
         .domain_pelt_like_utilization_percent(first.schedgroup_id())
         .ok()
         .flatten();
-    let (selected, second_id, second_util) = if let Some(second_index) = second_index {
+    let (base_selected, second_id, second_util) = if let Some(second_index) = second_index {
         let second = &domains[second_index];
         let second_util = fineloadbalancing
             .domain_pelt_like_utilization_percent(second.schedgroup_id())
@@ -335,6 +361,8 @@ fn select_power_of_two_domain(
     } else {
         (first, None, None)
     };
+
+    let selected = base_selected;
 
     selected.acquire_cores_oc(reg.cpus);
     debug!(
@@ -431,7 +459,8 @@ impl legacy::SelectDomain for CHBL {
             .iter()
             .fold(0usize, |hash, byte| hash.wrapping_mul(31).wrapping_add(*byte as usize));
         let home = hash % domains.len();
-        for offset in 1..=domains.len() {
+        // Probe the FQDN's home domain first, then spill over around the ring.
+        for offset in 0..domains.len() {
             let index = (home + offset) % domains.len();
             let domain = &domains[index];
             let is_home = index == home;
@@ -547,5 +576,18 @@ impl LoadBalancingPolicyTrait for CHBL {
 
     fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
         self.return_domain(tid, reg);
+    }
+
+    fn move_reservation(&self, reg: &RegisteredFunction, from: SchedGroupID, to: SchedGroupID) -> bool {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return false;
+        };
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        let (Some(source), Some(target)) = (domains.get(from as usize), domains.get(to as usize)) else {
+            return false;
+        };
+        source.return_cpus_and_release(reg.cpus);
+        target.acquire_cores_oc(reg.cpus);
+        true
     }
 }
