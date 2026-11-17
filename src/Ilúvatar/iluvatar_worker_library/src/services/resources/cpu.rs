@@ -5,13 +5,14 @@ use crate::services::invocation::queueing::InvokerCpuQueuePolicy;
 use crate::services::invocation::Invoker;
 use crate::services::registration::RegisteredFunction;
 use crate::worker_api::config::StatusConfig;
-use crate::worker_api::worker_config::CPUResourceConfig;
 use crate::worker_api::worker_config::FineLoadBalancingConfig;
 use crate::worker_api::worker_config::SchedExtMigrationMethod;
+use crate::worker_api::worker_config::{CPUResourceConfig, CpuConcurrencyLoadSource, FineschedDomainLoadAggregation};
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use dashmap::DashSet;
+use iluvatar_finesched::SchedGroupID;
 use iluvatar_library::char_map::Chars;
 use iluvatar_library::char_map::Value;
 use iluvatar_library::char_map::WorkerCharMap;
@@ -63,7 +64,7 @@ impl Drop for DomainCpuPermit {
 
 impl DroppableMovableTrait for DomainCpuPermit {}
 
-/// An invoker that scales concurrency based on system load.
+/// An invoker that scales concurrency based on a configured load signal.
 /// Prioritizes based on container availability.
 /// Increases concurrency by 1 every [crate::worker_api::worker_config::ComputeResourceConfig::concurrency_update_check_ms].
 /// If system load is above [crate::worker_api::worker_config::ComputeResourceConfig::max_load], then the concurrency is reduced by half the distance to [crate::worker_api::worker_config::ComputeResourceConfig::max_oversubscribe] rounded up.
@@ -74,6 +75,8 @@ pub struct CpuResourceTracker {
     min_concur: u32,
     current_concur: Mutex<u32>,
     max_load: Option<f64>,
+    concurrency_load_source: CpuConcurrencyLoadSource,
+    finesched_domain_load_aggregation: FineschedDomainLoadAggregation,
     pub cores: f64,
     load_avg: LoadAvg,
     fineloadbalancing: Option<FineLoadBalancing>,
@@ -152,6 +155,8 @@ impl CpuResourceTracker {
             min_concur: config.count,
             current_concur: Mutex::new(config.count),
             max_load: config.max_load,
+            concurrency_load_source: config.concurrency_load_source,
+            finesched_domain_load_aggregation: config.finesched_domain_load_aggregation,
             max_concur,
             _load_thread: load_handle,
             cores: available_cores as f64,
@@ -290,9 +295,69 @@ impl CpuResourceTracker {
         Ok(())
     }
 
+    fn aggregate_finesched_domain_load(
+        aggregation: FineschedDomainLoadAggregation,
+        snapshot: &[(SchedGroupID, Option<f64>)],
+    ) -> Option<f64> {
+        // Require a complete finite snapshot so missing domains cannot look like
+        // zero load and bias the controller toward increasing concurrency.
+        let mut loads = snapshot
+            .iter()
+            .map(|(_, load)| load.as_ref().copied())
+            .collect::<Option<Vec<_>>>()?;
+        if loads.is_empty() || loads.iter().any(|load| !load.is_finite()) {
+            return None;
+        }
+
+        match aggregation {
+            FineschedDomainLoadAggregation::Mean => Some(loads.iter().sum::<f64>() / loads.len() as f64),
+            FineschedDomainLoadAggregation::Median => {
+                loads.sort_by(f64::total_cmp);
+                let middle = loads.len() / 2;
+                if loads.len() % 2 == 0 {
+                    Some((loads[middle - 1] + loads[middle]) / 2.0)
+                } else {
+                    Some(loads[middle])
+                }
+            },
+            FineschedDomainLoadAggregation::Min => loads.into_iter().reduce(f64::min),
+            FineschedDomainLoadAggregation::Max => loads.into_iter().reduce(f64::max),
+        }
+    }
+
+    fn normalized_concurrency_load(&self) -> (f64, &'static str) {
+        let system_load = *self.load_avg.read() / self.cores;
+        if self.concurrency_load_source == CpuConcurrencyLoadSource::System {
+            return (system_load, "system");
+        }
+
+        let domain_load = self.fineloadbalancing.as_ref().and_then(|fineloadbalancing| {
+            match fineloadbalancing.domain_pelt_like_utilization_snapshot() {
+                Ok(snapshot) => {
+                    Self::aggregate_finesched_domain_load(self.finesched_domain_load_aggregation, &snapshot)
+                },
+                Err(error) => {
+                    debug!(error=%error, "[cpu-concurrency] FineSched domain PELT snapshot failed");
+                    None
+                },
+            }
+        });
+
+        if let Some(domain_load_percent) = domain_load {
+            return (domain_load_percent / 100.0, "finesched_domains");
+        }
+
+        debug!(
+            aggregation=?self.finesched_domain_load_aggregation,
+            finesched_enabled=self.fineloadbalancing.is_some(),
+            "[cpu-concurrency] FineSched domain load unavailable; falling back to system load"
+        );
+        (system_load, "system_fallback")
+    }
+
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self), fields(tid=tid)))]
     async fn monitor_load(self: &Arc<Self>, tid: &TransactionId) {
-        let norm_load = *self.load_avg.read() / self.cores;
+        let (norm_load, load_source) = self.normalized_concurrency_load();
         let current = *self.current_concur.lock();
         if norm_load > self.max_load.unwrap() {
             let change = current - self.min_concur;
@@ -320,6 +385,7 @@ impl CpuResourceTracker {
             tid = tid,
             concurrency = *self.current_concur.lock(),
             load = norm_load,
+            load_source,
             "Current concurrency"
         );
     }

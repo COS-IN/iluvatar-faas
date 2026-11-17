@@ -1,4 +1,5 @@
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::structs::ContainerState;
 use anyhow::Result;
 use iluvatar_library::transaction::TransactionId;
 use parking_lot::Mutex;
@@ -13,6 +14,20 @@ use iluvatar_library::clock::now;
 use std::collections::BinaryHeap;
 use tokio::time::Instant;
 
+/// Earliest-deadline CPU queue with enqueue-time estimates for cold starts.
+///
+/// The estimate tries to avoid treating every invocation in a burst as warm just
+/// because a warm container is idle at the instant the burst arrives. For each
+/// function, queued entries consume the current snapshot of idle warm containers,
+/// then prewarm containers; later entries are estimated as cold. This gives the
+/// queue a rough view of the work the burst is likely to create and lets those
+/// longer estimates influence its ordering.
+///
+/// This is deliberately best-effort. The snapshot is taken only when an entry is
+/// enqueued: popped entries waiting elsewhere are not counted, and queued estimates
+/// are not updated when a container later becomes idle. A cold estimate is only a
+/// scheduling estimate, not a requirement to cold-start; if a container returns
+/// before dispatch, the invocation can still use it.
 pub struct MinHeapEDQueue {
     invoke_queue: Arc<Mutex<BinaryHeap<MinHeapFloat>>>,
     cmap: WorkerCharMap,
@@ -76,15 +91,39 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-        let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
-        *self.est_time.lock() += est_wall_time;
         let mut queue = self.invoke_queue.lock();
-        let deadline = self.cmap.get_avg(&item.registration.fqdn, Chars::CpuExecTime) + self.time_since_creation();
+        let fqdn = &item.registration.fqdn;
+        // Use the number of same-function entries already waiting as a rough
+        // reservation against the idle containers observed at this enqueue.
+        let queued_for_function = queue
+            .iter()
+            .filter(|queued| queued.item.registration.fqdn == *fqdn)
+            .count();
+        let (warm_containers, prewarm_containers) = self.cont_manager.idle_cpu_container_state_counts(fqdn);
+        let anticipated_state = if queued_for_function < warm_containers {
+            ContainerState::Warm
+        } else if queued_for_function < warm_containers + prewarm_containers {
+            ContainerState::Prewarm
+        } else {
+            ContainerState::Cold
+        };
+        let est_wall_time = match anticipated_state {
+            ContainerState::Warm => self.cmap.get_avg(fqdn, Chars::CpuWarmTime),
+            ContainerState::Prewarm => self.cmap.get_avg(fqdn, Chars::CpuPreWarmTime),
+            _ => self.cmap.get_avg(fqdn, Chars::CpuColdTime),
+        };
+        let deadline = est_wall_time + self.time_since_creation();
         queue.push(MinHeapEnqueuedInvocation::new_f(item.clone(), deadline, est_wall_time));
+        *self.est_time.lock() += est_wall_time;
         debug!(
             tid = item.tid,
             component = "minheap",
-            "Added item to front of queue minheap - len: {} arrived: {} top: {} ",
+            anticipated_state = ?anticipated_state,
+            queued_for_function,
+            warm_containers,
+            prewarm_containers,
+            est_wall_time,
+            "Added item to queue minheap - len: {} arrived: {} top: {} ",
             queue.len(),
             item.registration.function_name,
             queue.peek().unwrap().item.registration.function_name

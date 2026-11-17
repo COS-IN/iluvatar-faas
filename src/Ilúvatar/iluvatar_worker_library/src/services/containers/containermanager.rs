@@ -198,6 +198,24 @@ impl ContainerManager {
         ContainerState::Cold
     }
 
+    /// Count idle CPU containers in the warm and prewarm states, respectively.
+    ///
+    /// Queue policies use this as a best-effort snapshot when estimating the cost
+    /// of queued work. Busy containers and containers in other states are excluded;
+    /// containers can also become busy or return immediately after this is read.
+    pub fn idle_cpu_container_state_counts(&self, fqdn: &str) -> (usize, usize) {
+        let mut warm = 0;
+        let mut prewarm = 0;
+        for container in self.cpu_containers.iter_idle_fqdn(fqdn) {
+            match container.state() {
+                ContainerState::Warm => warm += 1,
+                ContainerState::Prewarm => prewarm += 1,
+                _ => (),
+            }
+        }
+        (warm, prewarm)
+    }
+
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Not a guarantee it will be available
     pub fn warm_container(&self, fqdn: &str, gpu_token: &GpuToken) -> bool {

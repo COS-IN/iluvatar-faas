@@ -95,10 +95,42 @@ pub struct CPUResourceConfig {
     /// Frequency at which to check the system load and optionally increase the allowed invocation concurrency.
     /// Used with [Self::max_oversubscribe], disabled if 0
     pub concurrency_update_check_ms: Option<u64>,
-    /// The maximum normalized load average before reducing concurrency.
+    /// The maximum normalized load signal before reducing concurrency.
     /// Used with [Self::max_oversubscribe] and cannot be 0.
     /// Ilúvatar assumes that it will be the only program running on the system with this enabled, and has access to all CPUs.
     pub max_load: Option<f64>,
+    /// Load signal used by the dynamic CPU concurrency controller. The FineSched
+    /// source requires FineSched to be enabled and falls back to system load if
+    /// domain PELT metrics are unavailable.
+    #[serde(default)]
+    pub concurrency_load_source: CpuConcurrencyLoadSource,
+    /// Aggregation applied to the per-domain FineSched PELT-like load signal.
+    #[serde(default)]
+    pub finesched_domain_load_aggregation: FineschedDomainLoadAggregation,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuConcurrencyLoadSource {
+    /// Use the normalized system one-minute load average.
+    #[default]
+    System,
+    /// Aggregate FineSched PELT-like utilization across configured domains.
+    FineschedDomains,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FineschedDomainLoadAggregation {
+    /// Equal-weight average of all domains.
+    #[default]
+    Mean,
+    /// Middle value after sorting domain loads.
+    Median,
+    /// Load of the least utilized domain; represents available placement headroom.
+    Min,
+    /// Load of the most utilized domain; protects the busiest domain.
+    Max,
 }
 #[derive(Debug, Serialize, Deserialize, Default)]
 /// Configuration detailing a single type of compute
