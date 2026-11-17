@@ -170,11 +170,22 @@ impl LoadBalancingPolicyTrait for PowerOfTwo {
 /// work as a packing hint.
 pub struct PowerOfTwoPeek {
     fineloadbalancing: FineLoadBalancingWeak,
+    candidates: PowerOfTwoCandidates,
 }
 
 impl PowerOfTwoPeek {
     pub fn new(fineloadbalancing: FineLoadBalancingWeak) -> Self {
-        Self { fineloadbalancing }
+        Self {
+            fineloadbalancing,
+            candidates: PowerOfTwoCandidates::Random,
+        }
+    }
+
+    pub fn new_deterministic(fineloadbalancing: FineLoadBalancingWeak) -> Self {
+        Self {
+            fineloadbalancing,
+            candidates: PowerOfTwoCandidates::DeterministicFqdn,
+        }
     }
 }
 
@@ -204,16 +215,24 @@ impl LoadBalancingPolicyTrait for PowerOfTwoPeek {
         let pack_tightly = next_work
             .zip(current_work)
             .is_some_and(|(next, current)| next > current);
+        let deterministic_key = match self.candidates {
+            PowerOfTwoCandidates::Random => None,
+            PowerOfTwoCandidates::DeterministicFqdn => Some(reg.fqdn.clone()),
+        };
+        let policy = match self.candidates {
+            PowerOfTwoCandidates::Random => "power_of_two_peek",
+            PowerOfTwoCandidates::DeterministicFqdn => "power_of_two_peek_det",
+        };
         select_power_of_two_domain(
             &fineloadbalancing,
             tid,
             reg,
-            None,
+            deterministic_key.as_deref(),
             next_invocation,
             current_work,
             next_work,
             pack_tightly,
-            "power_of_two_peek",
+            policy,
         )
     }
 
