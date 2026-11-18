@@ -14,6 +14,7 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
     sync::Arc,
+    sync::atomic::AtomicBool,
 };
 use time::OffsetDateTime;
 use tokio::sync::Notify;
@@ -155,6 +156,8 @@ pub struct EnqueuedInvocation {
     /// Used to ensure an invocation is started only once.
     /// Items can currently be placed into multiple queues if they can run on multiple resources.
     pub started: Mutex<bool>,
+    /// Best-effort cold-start estimate made by the queue policy.
+    pub likely_cold: AtomicBool,
     /// The local time at which the item was inserted into the queue.
     pub queue_insert_time: OffsetDateTime,
     /// Estimated time (in seconds) from insertion that the function will have completed executing.
@@ -184,6 +187,7 @@ impl EnqueuedInvocation {
             result_ptr: InvocationResult::boxed(),
             signal: Notify::new(),
             started: Mutex::new(false),
+            likely_cold: AtomicBool::new(false),
             #[cfg(feature = "full_spans")]
             span: tracing::Span::current(),
         }

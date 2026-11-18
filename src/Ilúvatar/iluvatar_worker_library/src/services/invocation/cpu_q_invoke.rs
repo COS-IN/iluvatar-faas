@@ -143,6 +143,8 @@ impl CpuQueueingInvoker {
                     }
                     self.spawn_tokio_worker(self.clone(), item, permit);
                     break;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(self.invocation_config.queue_sleep_ms.max(1))).await;
                 }
             }
         }
@@ -212,7 +214,27 @@ impl CpuQueueingInvoker {
         match self.cpu.acquire_cores(&item.registration, &item.tid).await {
             Ok(c) => {
                 if c.is_some() {
-                    ret.push(c);
+                    ret.push(Box::new(c.unwrap()) as Box<dyn Drop + Send>);
+                    if self.invocation_config.cold_concurrent > 0
+                        && self.cpu.fine_scheduling_enabled()
+                        && item.likely_cold.load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        let Some(cold_permit) = self.cpu.reserve_likely_cold(
+                            &item.tid,
+                            &item.registration.fqdn,
+                            self.invocation_config.cold_concurrent,
+                        ) else {
+                            warn!(
+                                tid = item.tid,
+                                fqdn = item.registration.fqdn,
+                                limit = self.invocation_config.cold_concurrent,
+                                "Throttling likely-cold invocation due to per-domain cold concurrency limit"
+                            );
+                            drop(ret);
+                            return None;
+                        };
+                        ret.push(Box::new(cold_permit) as Box<dyn Drop + Send>);
+                    }
                 } else {
                     return None;
                 }

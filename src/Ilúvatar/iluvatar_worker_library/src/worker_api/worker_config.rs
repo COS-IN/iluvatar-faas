@@ -320,7 +320,7 @@ pub struct FineLoadBalancingConfig {
 }
 
 fn default_chbl_thresh() -> f32 {
-    0.8
+    0.5
 }
 
 fn default_chbl_cpu_tdp_watts() -> f64 {
@@ -328,7 +328,7 @@ fn default_chbl_cpu_tdp_watts() -> f64 {
 }
 
 fn default_finesched_burst_threshold() -> f64 {
-    0.8
+    0.5
 }
 
 fn default_finesched_burst_probes() -> usize {
@@ -370,6 +370,10 @@ impl FineLoadBalancingConfig {
 #[derive(Debug, Serialize, Deserialize)]
 /// Internal knobs for how the [crate::services::invocation::InvokerFactory], and types it creates, work
 pub struct InvocationConfig {
+    /// Maximum likely-cold invocations for the same function and FineSched domain.
+    /// Zero disables this throttle.
+    #[serde(default)]
+    pub cold_concurrent: u32,
     /// number of retries before giving up on an invocation
     /// Setting to 0 means no retries
     pub retries: u32,

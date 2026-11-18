@@ -671,6 +671,10 @@ impl ContainerManager {
         if amount_mb <= 0 {
             bail!("Cannot reclaim '{}' amount of memory", amount_mb);
         }
+        // Concurrent cold starts can enter this path together and each walk the
+        // shared prioritized list. Removal checks the live idle pool, so the
+        // same container is not reclaimed twice, but separate requests can
+        // still evict different idle containers and drain the pool in a burst.
         let mut reclaimed: MemSizeMb = 0;
         let mut to_remove = Vec::new();
         for container in self.prioritized_list.read().iter() {

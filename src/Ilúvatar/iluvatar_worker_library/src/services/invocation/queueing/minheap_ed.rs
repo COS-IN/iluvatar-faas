@@ -107,6 +107,10 @@ impl InvokerCpuQueuePolicy for MinHeapEDQueue {
         } else {
             ContainerState::Cold
         };
+        item.likely_cold.store(
+            anticipated_state == ContainerState::Cold,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         let est_wall_time = match anticipated_state {
             ContainerState::Warm => self.cmap.get_avg(fqdn, Chars::CpuWarmTime),
             ContainerState::Prewarm => self.cmap.get_avg(fqdn, Chars::CpuPreWarmTime),

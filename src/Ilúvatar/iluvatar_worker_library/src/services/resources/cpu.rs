@@ -238,6 +238,17 @@ impl CpuResourceTracker {
         }
     }
 
+    pub fn reserve_likely_cold(
+        &self,
+        tid: &TransactionId,
+        fqdn: &str,
+        limit: u32,
+    ) -> Option<super::fineloadbalancing::LikelyColdPermit> {
+        let fine = self.fineloadbalancing.as_ref()?;
+        let domain_id = *fine.stats.tid_map.get(tid)?;
+        fine.try_reserve_likely_cold(domain_id, fqdn, limit)
+    }
+
     pub fn set_container_manager(&self, manager: Weak<ContainerManager>) {
         if let Some(fineloadbalancing) = &self.fineloadbalancing {
             fineloadbalancing.set_container_manager(manager);

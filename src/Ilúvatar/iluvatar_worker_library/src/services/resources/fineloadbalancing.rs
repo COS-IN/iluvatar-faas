@@ -28,6 +28,13 @@ pub struct CpuQueueSnapshot {
     pub estimated_work_secs: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct DomainPeltAndColdSnapshot {
+    pub domain_id: SchedGroupID,
+    pub pelt_utilization_percent: Option<f64>,
+    pub likely_cold_by_fqdn: HashMap<String, u32>,
+}
+
 /// Coarse classification of the current CPU invocation-queue phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuWorkloadPhase {
