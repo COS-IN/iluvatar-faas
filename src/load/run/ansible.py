@@ -98,7 +98,10 @@ def _remote_cleanup(
 
     if kwargs["host"] == "localhost" or kwargs["host"] == "127.0.0.1":
         if results_dir != kwargs["worker_log_dir"]:
-            _run_cmd(["rm", "-rf", kwargs["worker_log_dir"]], logger, shell=False)
+            # The worker runs with become/root and can own its log directory.
+            # Use sudo here too; otherwise cleanup fails when the parent is
+            # root-owned even after the logs have been copied to results_dir.
+            _run_cmd(["sudo", "rm", "-rf", kwargs["worker_log_dir"]], logger, shell=False)
     else:
         from paramiko import SSHClient
         import paramiko

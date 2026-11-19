@@ -1,5 +1,6 @@
 use super::{preview_heap_fqdn_counts, EnqueuedInvocation, InvokerCpuQueuePolicy, MinHeapEnqueuedInvocation};
 use crate::services::containers::containermanager::ContainerManager;
+use crate::services::containers::structs::ContainerState;
 use anyhow::Result;
 use iluvatar_library::char_map::WorkerCharMap;
 use parking_lot::Mutex;
@@ -63,9 +64,29 @@ impl InvokerCpuQueuePolicy for FCFSQueue {
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, _index), fields(tid=item.tid)))]
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
+        let mut queue = self.invoke_queue.lock();
+        let fqdn = &item.registration.fqdn;
+        // Estimate the state after accounting for earlier same-function queue
+        // entries, just as minheap_ed does. This is advisory: a container can
+        // become idle before this invocation is dispatched.
+        let queued_for_function = queue
+            .iter()
+            .filter(|queued| queued.item.registration.fqdn == *fqdn)
+            .count();
+        let (warm_containers, prewarm_containers) = self.cont_manager.idle_cpu_container_state_counts(fqdn);
+        let anticipated_state = if queued_for_function < warm_containers {
+            ContainerState::Warm
+        } else if queued_for_function < warm_containers + prewarm_containers {
+            ContainerState::Prewarm
+        } else {
+            ContainerState::Cold
+        };
+        item.likely_cold.store(
+            anticipated_state == ContainerState::Cold,
+            std::sync::atomic::Ordering::Relaxed,
+        );
         let est_wall_time = self.est_wall_time(item, &self.cont_manager, &self.cmap)?;
         *self.est_time.lock() += est_wall_time;
-        let mut queue = self.invoke_queue.lock();
         queue.push(MinHeapEnqueuedInvocation::new(
             item.clone(),
             item.queue_insert_time,

@@ -143,21 +143,60 @@ def worker_data(result: Path) -> dict[str, Any]:
             if entry.get("level") in {"WARN", "ERROR"}:
                 errors[(str(entry["level"]), message)] += 1
 
+    window_source = "worker_log"
     if not requests or not completions:
-        raise ValueError(f"worker log has no complete invocation window: {worker_log}")
-    first_request = min(requests)
-    last_request = max(requests)
-    last_completion = max(completions)
+        load_log = result / "load_gen.log"
+        invocation_csv = select_file(result, (), "output-*.csv")
+        invoke_start = None
+        run_end = None
+        with load_log.open(errors="replace") as stream:
+            for line in stream:
+                try:
+                    entry = json.loads(line)
+                    when = timestamp(entry["timestamp"])
+                    message = str(entry.get("fields", {}).get("message", "")).lower()
+                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                    continue
+                if message == "starting invocations":
+                    invoke_start = when
+                if message == "threads closed, writing results to file":
+                    run_end = when
+        if invoke_start is None or run_end is None:
+            raise ValueError(
+                f"worker log has no complete invocation window and load_gen.log has no run markers: {worker_log}"
+            )
+        request_count = completion_count = 0
+        with invocation_csv.open(newline="") as stream:
+            for row in csv.DictReader(stream):
+                request_count += 1
+                completion_count += str(row.get("success", "")).lower() == "true"
+        first_request = invoke_start
+        last_request = run_end
+        last_completion = run_end
+        makespan = (run_end - invoke_start).total_seconds()
+        arrival_span = makespan
+        drain = None
+        window_source = "load_gen.log (approximate; worker events unavailable)"
+    else:
+        first_request = min(requests)
+        last_request = max(requests)
+        last_completion = max(completions)
+        request_count = len(requests)
+        completion_count = len(completions)
+        makespan = (last_completion - first_request).total_seconds()
+        arrival_span = (last_request - first_request).total_seconds()
+        drain = (last_completion - last_request).total_seconds() * 1000.0
     return {
         "log": str(worker_log),
         "first_request": first_request,
         "last_request": last_request,
         "last_completion": last_completion,
-        "request_count": len(requests),
-        "completion_count": len(completions),
-        "makespan_seconds": (last_completion - first_request).total_seconds(),
-        "arrival_span_seconds": (last_request - first_request).total_seconds(),
-        "drain_milliseconds": (last_completion - last_request).total_seconds() * 1000.0,
+        "request_count": request_count,
+        "completion_count": completion_count,
+        "makespan_seconds": makespan,
+        "arrival_span_seconds": arrival_span,
+        "drain_milliseconds": drain,
+        "window_source": window_source,
         "errors": [
             {"level": level, "message": message, "count": count}
             for (level, message), count in errors.most_common()
@@ -532,10 +571,14 @@ def markdown(data: dict[str, Any]) -> str:
     for name, run in (("CFS", cfs), ("FineSched", fine)):
         worker = run["worker"]
         invocations = run["invocations"]
+        drain = (
+            f"{worker['drain_milliseconds']:.3f}"
+            if worker["drain_milliseconds"] is not None else "n/a"
+        )
         lines.append(
             f"| {name} | {worker['request_count']} | {worker['completion_count']} | "
             f"{invocations['successes']} | {worker['makespan_seconds']:.3f} | "
-            f"{worker['drain_milliseconds']:.3f} |"
+            f"{drain} |"
         )
 
     lines.extend(
@@ -707,6 +750,10 @@ def markdown(data: dict[str, Any]) -> str:
 def single_markdown(run: dict[str, Any]) -> str:
     worker = run["worker"]
     invocations = run["invocations"]
+    drain = (
+        f"{worker['drain_milliseconds']:.3f}"
+        if worker["drain_milliseconds"] is not None else "n/a"
+    )
     lines = [
         "# CPU scheduler run analysis",
         "",
@@ -720,8 +767,9 @@ def single_markdown(run: dict[str, Any]) -> str:
         "|---:|---:|---:|---:|---:|---:|---:|---:|",
         f"| {worker['request_count']} | {worker['completion_count']} | "
         f"{invocations['successes']} | {invocations['failures']} | {invocations['cold']} | "
-        f"{invocations['warm']} | {worker['makespan_seconds']:.3f} | "
-        f"{worker['drain_milliseconds']:.3f} |",
+        f"{invocations['warm']} | {worker['makespan_seconds']:.3f} | {drain} |",
+        "",
+        f"Window source: {worker['window_source']}.",
         "",
         "## Warm invocation latency",
         "",

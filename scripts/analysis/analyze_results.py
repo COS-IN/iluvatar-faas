@@ -163,6 +163,9 @@ def summarize_invocations(invocations, output_dir):
         cpu_utilization = numeric(row, "cpu_utilization")
         code_duration = numeric(row, "code_duration_sec")
         e2e_duration = numeric(row, "e2e_duration_us")
+        worker_duration = numeric(row, "worker_duration_us")
+        if worker_duration is not None and code_duration is not None:
+            row["worker_nonexecution_us"] = worker_duration - code_duration * 1_000_000
         if cpu_utilization is not None and code_duration is not None:
             row["cpu_time_us"] = cpu_utilization * code_duration * 1_000_000
         if cpu_utilization is not None and e2e_duration is not None:
@@ -173,6 +176,7 @@ def summarize_invocations(invocations, output_dir):
         grouped[row["function_name"]].append(row)
     metrics = [
         "worker_duration_us",
+        "worker_nonexecution_us",
         "code_duration_sec",
         "e2e_duration_us",
         "cpu_utilization",
@@ -196,6 +200,8 @@ def summarize_invocations(invocations, output_dir):
                 values = [value for row in class_rows if (value := numeric(row, metric)) is not None]
                 summary[f"{metric}_mean"] = statistics.fmean(values) if values else 0.0
                 summary[f"{metric}_std"] = statistics.pstdev(values) if values else 0.0
+                summary[f"{metric}_p50"] = percentile(values, 0.50)
+                summary[f"{metric}_p95"] = percentile(values, 0.95)
                 summary[f"{metric}_p99"] = percentile(values, 0.99)
             summary_rows.append(summary)
 
@@ -263,12 +269,26 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        worker_log = select_file(args.worker_log, result_dir, ["worker.log", "worker_worker1.log"])
+        worker_log = select_file(
+            args.worker_log, result_dir,
+            ["worker1.log", "worker.log", "worker_worker1.log"],
+        )
         invocations = select_file(
             args.invocations,
             result_dir,
             ["output-funcs-in.csv", "benchmark-output.csv"],
+            required=False,
         )
+        if invocations is None:
+            trace_outputs = sorted(
+                path for path in result_dir.glob("output-*.csv")
+                if "failed" not in path.name
+            )
+            if not trace_outputs:
+                raise FileNotFoundError(
+                    f"no invocation CSV found in {result_dir}"
+                )
+            invocations = trace_outputs[0]
         load_gen_log = select_file(args.load_gen_log, result_dir, ["load_gen.log"], required=False)
     except FileNotFoundError as error:
         parser.error(str(error))

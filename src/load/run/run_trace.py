@@ -440,11 +440,6 @@ def run_live(
                     kwargs,
                 )
                 sleep(5)
-                _remote_cleanup(
-                    logger,
-                    results_dir,
-                    kwargs,
-                )
             except Exception as e:
                 msg = "\n".join([
                     "Exception encountered:",
@@ -452,12 +447,16 @@ def run_live(
                     traceback.format_exc()
                 ])
                 logger.error(msg)
-                _remote_cleanup(
-                    logger,
-                    results_dir,
-                    kwargs,
-                )
+                try:
+                    _remote_cleanup(logger, results_dir, kwargs)
+                except Exception as cleanup_error:
+                    logger.error(f"Cleanup after experiment failure also failed: {cleanup_error}")
                 raise e
+            else:
+                # Keep cleanup outside the experiment exception handler. If
+                # cleanup itself fails after copying logs, retrying it would
+                # copy the worker's clean-command log over the experiment log.
+                _remote_cleanup(logger, results_dir, kwargs)
 
 
 def run_sim(

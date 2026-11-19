@@ -1,5 +1,23 @@
 # Local experiment analysis
 
+## Invocation CSV provenance
+
+The trace load generator (`iluvatar_load_gen trace`) writes the primary
+`output-<trace-name>.csv` and `output-full-<trace-name>.json` when it finishes.
+The CSV is written from completed invocation results by
+`src/Ilúvatar/iluvatar_load_gen/src/trace/trace_utils.rs::save_controller_results`;
+it is not reconstructed from the worker log. The CSV contains per-invocation
+success, function, cold/warm status, worker duration, function-code duration,
+end-to-end duration, and invocation ID (`tid`).
+
+The Python runner then enriches the CSV from worker JSON logs:
+`src/load/run/local.py::enrich_output_csv_with_finesched_logs` joins FineSched
+assignment and sampled-metric fields onto invocation rows by `tid`. The runner
+generates `summary.csv` and `failed_invocations.csv` from that CSV. Analysis
+tools may read both the invocation CSV and worker logs, but the worker log is
+not the source of the primary invocation rows. `load_gen.log` captures the
+load generator's console output and is separate from the worker JSON logs.
+
 This directory ports the active single-experiment analysis path from
 `v-020:/data2/ar/finescheduling/cpusched_experiments`. The original entry point
 is `process_results.sh`; it filters `worker_worker1.log`, summarizes invocation
