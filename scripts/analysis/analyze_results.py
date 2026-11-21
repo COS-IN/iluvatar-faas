@@ -148,9 +148,54 @@ def is_true(value):
     return str(value).strip().lower() == "true"
 
 
-def summarize_invocations(invocations, output_dir):
+def worker_invocation_timings(worker_log):
+    timings = defaultdict(dict)
+    if worker_log is None:
+        return timings
+    with worker_log.open(errors="replace") as stream:
+        for line in stream:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            fields = entry.get("fields", {})
+            tid = fields.get("tid")
+            if not tid:
+                continue
+            message = fields.get("message")
+            row = timings[tid]
+            if message == "Invocation complete":
+                value = numeric(fields, "e2etime")
+                if value is not None:
+                    row["worker_service_e2e_us"] = value * 1_000_000
+            elif message == "Item starting to execute":
+                try:
+                    inserted = datetime.fromisoformat(fields["insert_time"])
+                    removed = datetime.fromisoformat(fields["remove_time"])
+                    row["dispatcher_queue_wait_us"] = (removed - inserted).total_seconds() * 1_000_000
+                except (KeyError, TypeError, ValueError):
+                    pass
+            elif message == "Trying to cold start a new container":
+                row["container_start_begin"] = entry.get("timestamp")
+            elif message == "Container cold start completed":
+                row["container_start_end"] = entry.get("timestamp")
+
+    for row in timings.values():
+        start, end = row.get("container_start_begin"), row.get("container_start_end")
+        if start and end:
+            try:
+                row["container_startup_us"] = (
+                    datetime.fromisoformat(end) - datetime.fromisoformat(start)
+                ).total_seconds() * 1_000_000
+            except ValueError:
+                pass
+    return timings
+
+
+def summarize_invocations(invocations, output_dir, worker_log=None):
     with invocations.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
+    worker_timings = worker_invocation_timings(worker_log)
     successful = [row.copy() for row in rows if is_true(row.get("success"))]
     failed = [row for row in rows if not is_true(row.get("success"))]
     with (output_dir / "failed_invocations.csv").open("w", newline="") as stream:
@@ -165,7 +210,10 @@ def summarize_invocations(invocations, output_dir):
         e2e_duration = numeric(row, "e2e_duration_us")
         worker_duration = numeric(row, "worker_duration_us")
         if worker_duration is not None and code_duration is not None:
-            row["worker_nonexecution_us"] = worker_duration - code_duration * 1_000_000
+            row["container_call_overhead_us"] = worker_duration - code_duration * 1_000_000
+        for key, value in worker_timings.get(row.get("tid", ""), {}).items():
+            if key in ("worker_service_e2e_us", "dispatcher_queue_wait_us", "container_startup_us"):
+                row[key] = value
         if cpu_utilization is not None and code_duration is not None:
             row["cpu_time_us"] = cpu_utilization * code_duration * 1_000_000
         if cpu_utilization is not None and e2e_duration is not None:
@@ -176,7 +224,10 @@ def summarize_invocations(invocations, output_dir):
         grouped[row["function_name"]].append(row)
     metrics = [
         "worker_duration_us",
-        "worker_nonexecution_us",
+        "container_call_overhead_us",
+        "worker_service_e2e_us",
+        "dispatcher_queue_wait_us",
+        "container_startup_us",
         "code_duration_sec",
         "e2e_duration_us",
         "cpu_utilization",
@@ -198,11 +249,12 @@ def summarize_invocations(invocations, output_dir):
             }
             for metric in metrics:
                 values = [value for row in class_rows if (value := numeric(row, metric)) is not None]
-                summary[f"{metric}_mean"] = statistics.fmean(values) if values else 0.0
-                summary[f"{metric}_std"] = statistics.pstdev(values) if values else 0.0
-                summary[f"{metric}_p50"] = percentile(values, 0.50)
-                summary[f"{metric}_p95"] = percentile(values, 0.95)
-                summary[f"{metric}_p99"] = percentile(values, 0.99)
+                summary[f"{metric}_n"] = len(values)
+                summary[f"{metric}_mean"] = statistics.fmean(values) if values else ""
+                summary[f"{metric}_std"] = statistics.pstdev(values) if values else ""
+                summary[f"{metric}_p50"] = percentile(values, 0.50) if values else ""
+                summary[f"{metric}_p95"] = percentile(values, 0.95) if values else ""
+                summary[f"{metric}_p99"] = percentile(values, 0.99) if values else ""
             summary_rows.append(summary)
 
     fields = list(summary_rows[0]) if summary_rows else ["function_name", "invocation_class", "count"]
@@ -295,7 +347,7 @@ def main():
 
     status_rows, invalid_worker_lines, worker_events = parse_worker_log(worker_log, output_dir)
     timing = parse_load_gen_log(load_gen_log, output_dir)
-    invocation_counts = summarize_invocations(invocations, output_dir)
+    invocation_counts = summarize_invocations(invocations, output_dir, worker_log)
     status_samples = summarize_status(status_rows, timing, output_dir)
     summary = {
         "result_dir": str(result_dir),

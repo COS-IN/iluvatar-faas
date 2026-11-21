@@ -29,6 +29,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Weak;
+use std::thread;
+use std::time::Duration;
 use tokio::sync::Notify;
 use tracing::debug;
 use tracing::error;
@@ -97,6 +99,7 @@ pub struct FineLoadBalancingStruct {
 
     pub(super) core_metrics_reader: Option<CoreMetricsReader>,
     core_metrics_debug_counter: AtomicU64,
+    workload_phase_debug_counter: AtomicU64,
 
     pub domain_operation_lock: Mutex<bool>,
     pub domain_release_signal: Arc<Notify>,
@@ -188,7 +191,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
         let core_metrics_reader = if config.testing != 0 {
             None
         } else {
-            match CoreMetricsReader::open() {
+            match open_core_metrics_reader_with_retry() {
                 Ok(reader) => Some(reader),
                 Err(error) => {
                     warn!(
@@ -312,6 +315,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
 
                 core_metrics_reader,
                 core_metrics_debug_counter: AtomicU64::new(0),
+                workload_phase_debug_counter: AtomicU64::new(0),
 
                 domain_operation_lock: Mutex::new(false),
                 domain_release_signal: Arc::new(Notify::new()),
@@ -322,7 +326,60 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
     }
 }
 
+/// sched_ext can take a short time to report `enabled` after FineSched attaches.
+/// Retry opening the reader during that transition; keep startup bounded if the
+/// scheduler or its pinned map never becomes available.
+fn open_core_metrics_reader_with_retry() -> Result<CoreMetricsReader> {
+    const ATTEMPTS: usize = 50;
+    const RETRY_DELAY: Duration = Duration::from_millis(100);
+
+    let mut last_error = None;
+    for attempt in 0..ATTEMPTS {
+        match CoreMetricsReader::open() {
+            Ok(reader) => return Ok(reader),
+            Err(error) => {
+                // Retry the observed sched_ext state transition, but don't add
+                // startup latency for unrelated failures such as permissions.
+                if !format!("{error:#}").contains("sched_ext is disabled") {
+                    return Err(error);
+                }
+                last_error = Some(error);
+            },
+        }
+
+        if attempt + 1 < ATTEMPTS {
+            thread::sleep(RETRY_DELAY);
+        }
+    }
+
+    Err(last_error.expect("at least one core metrics open attempt"))
+}
+
 impl FineLoadBalancingStruct {
+    /// Sample the queue's coarse CPU workload phase at the configured rate.
+    pub(crate) fn maybe_log_cpu_workload_phase(&self, tid: &TransactionId, fqdn: &str, policy: &str) {
+        let sample_every = self.config.core_metrics_debug_every;
+        if sample_every == 0 {
+            return;
+        }
+
+        let assignment_ordinal = self.workload_phase_debug_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        if assignment_ordinal % sample_every != 0 {
+            return;
+        }
+
+        let phase = self.cpu_workload_phase();
+        debug!(
+            tid = %tid,
+            fqdn,
+            policy,
+            phase = ?phase,
+            assignment_ordinal,
+            sample_every,
+            "[finesched][workload-phase] sampled CPU workload phase"
+        );
+    }
+
     pub fn try_reserve_likely_cold(
         self: &Arc<Self>,
         domain_id: SchedGroupID,

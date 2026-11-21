@@ -392,7 +392,9 @@ pub fn save_controller_results(results: Vec<CompletedControllerInvocation>, args
         "output-full-{}.json",
         pth.file_stem().unwrap().to_str().unwrap()
     ));
-    save_result_json(p, &results)?;
+    if args.keep_full_json {
+        save_result_json(p, &results)?;
+    }
 
     let pth = Path::new(&args.input_csv);
     let p = Path::new(&args.out_folder).join(format!("output-{}", pth.file_name().unwrap().to_str().unwrap()));

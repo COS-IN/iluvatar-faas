@@ -93,21 +93,22 @@ def trace_output(type, trace_in):
     return f"output{addtl}-{basename}.{type}"
 
 
-def has_results(results_dir, function_trace_name):
+def has_results(results_dir, function_trace_name, require_full_json=False):
     output_json = os.path.join(results_dir, trace_output("json", function_trace_name))
     output_csv = os.path.join(results_dir, trace_output("csv", function_trace_name))
-    if not os.path.exists(output_json):
-        return False
     if not os.path.exists(output_csv):
         return False
-    with open(output_json) as f:
-        if len(f.readlines()) == 0:
+    if require_full_json:
+        if not os.path.exists(output_json):
             return False
-    try:
-        with open(output_json) as jsonf:
-            _parsed = json.load(jsonf)
-    except:
-        return False
+        with open(output_json) as f:
+            if len(f.readlines()) == 0:
+                return False
+        try:
+            with open(output_json) as jsonf:
+                _parsed = json.load(jsonf)
+        except Exception:
+            return False
     with open(output_csv) as f:
         if len(f.readlines()) == 0:
             return False
@@ -163,6 +164,8 @@ def _run_load(logger, results_dir, input_csv, metadata, kwargs):
         "--max-prewarms",
         1,
     ]
+    if kwargs["save_full_json"]:
+        load_args.append("--keep-full-json")
     if kwargs["simulation"]:
         load_args.append("--worker-config")
         load_args.append(kwargs["worker_config_file"])
@@ -228,6 +231,7 @@ runner_config_kwargs = [
 
 load_gen_kwargs = [
     ("load_type", "functions"),
+    ("save_full_json", False),
     ("prewarm", 1),
     ("simulation", None),
     ("tick_step", 300),
@@ -411,7 +415,9 @@ def run_live(
     logger = create_logger(log_file)
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
-    if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
+    if not kwargs["force"] and has_results(
+        results_dir, kwargs["function_trace_name"], kwargs["save_full_json"]
+    ):
         print(f"Skipping {results_dir}")
     else:
         with HeldHost(queue.get(), queue) as held_host:
@@ -480,7 +486,9 @@ def run_sim(
     kwargs["simulation"] = True
     kwargs["function_trace_name"] = trace_base_name(trace_in)
 
-    if not kwargs["force"] and has_results(results_dir, kwargs["function_trace_name"]):
+    if not kwargs["force"] and has_results(
+        results_dir, kwargs["function_trace_name"], kwargs["save_full_json"]
+    ):
         print(f"Skipping {results_dir}")
         return
 

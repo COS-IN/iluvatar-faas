@@ -3,12 +3,25 @@
 ## Invocation CSV provenance
 
 The trace load generator (`iluvatar_load_gen trace`) writes the primary
-`output-<trace-name>.csv` and `output-full-<trace-name>.json` when it finishes.
+`output-<trace-name>.csv` when it finishes. It omits
+`output-full-<trace-name>.json` by default; pass `--keep-full-json` when running
+the load generator if you need the full per-invocation records for the older
+`load.analysis.log_parser` workflow.
 The CSV is written from completed invocation results by
 `src/Ilúvatar/iluvatar_load_gen/src/trace/trace_utils.rs::save_controller_results`;
 it is not reconstructed from the worker log. The CSV contains per-invocation
 success, function, cold/warm status, worker duration, function-code duration,
 end-to-end duration, and invocation ID (`tid`).
+`tracecmp.py` uses this CSV when the optional full JSON is absent, pairing rows
+in trace submission order and adding worker-log context when available.
+
+In this CSV, `worker_duration_us` is the worker-to-container invocation-call
+duration. It does not include the entire worker request lifecycle, including
+dispatcher wait or cold container creation. `analyze_results.py` uses worker
+events keyed by `tid` to summarize full worker E2E (`Invocation complete`),
+dispatcher queue wait (`Item starting to execute` insert/remove times), and
+container startup where those events are available. Missing event data is
+reported with a zero sample count, not interpreted as zero latency.
 
 The Python runner then enriches the CSV from worker JSON logs:
 `src/load/run/local.py::enrich_output_csv_with_finesched_logs` joins FineSched

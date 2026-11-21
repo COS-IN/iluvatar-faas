@@ -23,7 +23,7 @@ log records an async job ID and its result file, for example:
 
 ```text
 "ansible_job_id": "j752884155544.123819",
-"results_file": "/root/.ansible_async/j752884155544.123819"
+"results_file": "/root/.ansible_async/<ansible-job-id>"
 ```
 
 Read the captured stdout from that result file:

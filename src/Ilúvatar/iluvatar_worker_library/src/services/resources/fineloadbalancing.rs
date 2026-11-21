@@ -79,25 +79,69 @@ pub fn classify_cpu_workload_phase(
     cpu_cores: usize,
 ) -> CpuWorkloadPhase {
     let cpu_cores = cpu_cores.max(1);
-    let large_backlog = snapshot.queued_invocations >= LARGE_QUEUE_ITEMS_PER_CORE * cpu_cores
-        || snapshot.estimated_work_secs >= LARGE_QUEUE_WORK_SECS_PER_CORE * cpu_cores as f64;
+    let queued_item_threshold = LARGE_QUEUE_ITEMS_PER_CORE * cpu_cores;
+    let estimated_work_threshold_secs = LARGE_QUEUE_WORK_SECS_PER_CORE * cpu_cores as f64;
+    let item_backlog_large = snapshot.queued_invocations >= queued_item_threshold;
+    let work_backlog_large = snapshot.estimated_work_secs >= estimated_work_threshold_secs;
+    let large_backlog = item_backlog_large || work_backlog_large;
     if !large_backlog {
+        debug!(
+            phase = ?CpuWorkloadPhase::Low,
+            queued_invocations = snapshot.queued_invocations,
+            estimated_work_secs = snapshot.estimated_work_secs,
+            cpu_cores,
+            queued_item_threshold,
+            estimated_work_threshold_secs,
+            item_backlog_large,
+            work_backlog_large,
+            "[finesched][workload-phase] classified low: neither backlog threshold was reached"
+        );
         return CpuWorkloadPhase::Low;
     }
 
     let total_count = function_counts.values().sum::<usize>();
     if total_count == 0 {
+        debug!(
+            phase = ?CpuWorkloadPhase::High,
+            queued_invocations = snapshot.queued_invocations,
+            estimated_work_secs = snapshot.estimated_work_secs,
+            cpu_cores,
+            queued_item_threshold,
+            estimated_work_threshold_secs,
+            item_backlog_large,
+            work_backlog_large,
+            distinct_functions = function_counts.len(),
+            "[finesched][workload-phase] classified high: large backlog but no queued function counts for burst analysis"
+        );
         return CpuWorkloadPhase::High;
     }
     let mut counts = function_counts.values().copied().collect::<Vec<_>>();
     counts.sort_unstable_by(|a, b| b.cmp(a));
     let top_functions_count = counts.iter().take(BURSTY_TOP_FUNCTIONS).sum::<usize>();
     let dominant_share = top_functions_count as f64 / total_count as f64;
-    if dominant_share >= BURSTY_FUNCTION_SHARE {
+    let phase = if dominant_share >= BURSTY_FUNCTION_SHARE {
         CpuWorkloadPhase::Bursty
     } else {
         CpuWorkloadPhase::High
-    }
+    };
+    debug!(
+        phase = ?phase,
+        queued_invocations = snapshot.queued_invocations,
+        estimated_work_secs = snapshot.estimated_work_secs,
+        cpu_cores,
+        queued_item_threshold,
+        estimated_work_threshold_secs,
+        item_backlog_large,
+        work_backlog_large,
+        distinct_functions = function_counts.len(),
+        total_function_count = total_count,
+        top_functions_limit = BURSTY_TOP_FUNCTIONS,
+        top_functions_count,
+        dominant_share,
+        dominance_threshold = BURSTY_FUNCTION_SHARE,
+        "[finesched][workload-phase] classified large backlog from queued-function concentration"
+    );
+    phase
 }
 
 /// Choose between two domains using lower PELT-like utilization. The random
@@ -227,6 +271,9 @@ impl LoadBalancingPolicyTrait for PowerOfTwoPeek {
         reg: Arc<RegisteredFunction>,
     ) -> Option<SchedGroupID> {
         let fineloadbalancing = self.fineloadbalancing.upgrade()?;
+        if matches!(self.candidates, PowerOfTwoCandidates::DeterministicFqdn) {
+            fineloadbalancing.maybe_log_cpu_workload_phase(tid, &reg.fqdn, "power_of_two_peek_det");
+        }
         let next_invocation = fineloadbalancing.peek_next_cpu_invocation();
         let current_work = anticipated_cpu_work(&fineloadbalancing, &reg.fqdn, reg.cpus, "current");
         let next_work = next_invocation

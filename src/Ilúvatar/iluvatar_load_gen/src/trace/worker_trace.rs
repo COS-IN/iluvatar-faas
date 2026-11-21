@@ -114,7 +114,11 @@ async fn run_invokes(tid: &TransactionId, args: TraceArgs, factory: Arc<WorkerAP
         "output-full-{}.json",
         pth.file_stem().expect("Could not find a file name").to_str().unwrap()
     ));
-    save_result_json(p, &results)
+    if args.keep_full_json {
+        save_result_json(p, &results)
+    } else {
+        Ok(())
+    }
 }
 
 pub fn simulated_worker(args: TraceArgs) -> Result<()> {

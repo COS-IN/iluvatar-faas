@@ -617,6 +617,7 @@ class AnsibleRunConfig:
     build: str = "debug"
     prewarms: int = 0
     force: bool = False
+    save_full_json: bool = False
 
 
 def _merge_config(defaults: Any, requested: Any) -> Any:
@@ -738,6 +739,7 @@ def run_ansible_local(config: AnsibleRunConfig) -> None:
         worker_config_file=str(merged_config),
         worker_log_dir=str(worker_log_dir),
         worker_port=port,
+        save_full_json=config.save_full_json,
     )
     csv_count, assignment_rows, sampled_rows = enrich_output_csv_with_finesched_logs(results_dir)
     if csv_count:

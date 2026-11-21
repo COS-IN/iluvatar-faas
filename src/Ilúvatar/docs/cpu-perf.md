@@ -182,10 +182,10 @@ If context switches rise, use perf sched/scheduler tracepoints. If cycles rise w
 
 ## Validated power result
 
-The profiled runs are:
+The profiled runs (paths relative to the workspace root) are:
 
-- FineSched: `/home/prateeks/code/results/four-functions-finesched-bfs-perf-freq-20261109-032034`
-- CFS: `/home/prateeks/code/results/four-functions-cfs-bfs-perf-freq-20261109-035439`
+- FineSched: `results/four-functions-finesched-bfs-perf-freq-20261109-032034`
+- CFS: `results/four-functions-cfs-bfs-perf-freq-20261109-035439`
 
 Both workers handled 650 requests successfully. From the first request received by the
 worker to the final `Invocation complete`, FineSched took 214.418 seconds and CFS took

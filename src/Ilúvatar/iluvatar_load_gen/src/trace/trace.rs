@@ -62,6 +62,9 @@ pub struct TraceArgs {
     #[arg(long)]
     /// Output load generator logs to stdout
     pub log_stdout: bool,
+    #[arg(long, default_value_t = false)]
+    /// Write the full per-invocation JSON result file (disabled by default)
+    pub keep_full_json: bool,
     #[arg(long, value_enum, default_value_t=SimulationGranularity::MS)]
     /// Time granularity of system simulation
     sim_gran: SimulationGranularity,
