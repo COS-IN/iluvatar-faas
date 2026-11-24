@@ -394,6 +394,9 @@ pub struct InvocationConfig {
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
     pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
+    /// Optional congestion-pricing admission-control configuration.
+    #[serde(default)]
+    pub congestion_pricing: Option<Arc<CongestionPricingConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {
@@ -433,6 +436,32 @@ pub struct HttpServerConfig {
     pub address: String,
     pub enabled: bool,
     pub port: u16,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CongestionPricingCalibration {
+    /// Initial warm-stretch slope θ_warm (default 1.0, clamped to [0.25, 3.0]).
+    pub theta_warm: Option<f64>,
+    /// Initial cold-boot slope θ_cold (default 1.5, clamped to [0.5, 5.0]).
+    pub theta_cold: Option<f64>,
+    /// Home-domain cache-affinity bonus φ_aff (default 0.05).
+    pub phi_aff: Option<f64>,
+    /// If true, EWMA calibration updates are disabled (useful for A/B tests).
+    pub freeze_calibration: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct CongestionPricingConfig {
+    /// Power β in the welfare weight w_i = S_i^{-β} (default 1.0).
+    pub welfare_beta: Option<f64>,
+    /// Normalized load where warm-task stretch begins (default 1.05).
+    pub rho_knee: Option<f64>,
+    /// Physical cores per FineSched domain. Auto-detected from fineloadbalancing config if None.
+    pub cores_per_domain: Option<u32>,
+    /// Maximum queued invocations per domain before admission is refused (default 64).
+    pub max_queue_per_domain: Option<usize>,
+    /// Optional seed calibration; None means use zero-config defaults.
+    pub pricing_calibration: Option<CongestionPricingCalibration>,
 }
 
 pub const WORKER_ENV_PREFIX: &str = "ILUVATAR_WORKER";

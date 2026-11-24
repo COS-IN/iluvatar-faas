@@ -28,6 +28,7 @@ pub mod minheap;
 pub mod minheap_ed;
 pub mod minheap_iat;
 pub mod queueless;
+pub mod congestion_pricing;
 
 // GPU focused queues
 pub mod dynamic_batching;

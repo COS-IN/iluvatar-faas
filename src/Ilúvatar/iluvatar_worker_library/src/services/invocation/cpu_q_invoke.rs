@@ -1,7 +1,8 @@
 use super::queueing::{
     avail_scale::AvailableScalingQueue, cold_priority::ColdPriorityQueue, fcfs::FCFSQueue, minheap::MinHeapQueue,
-    minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, queueless::Queueless,
+    minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, queueless::Queueless, congestion_pricing::CongestionPricingCoordinator,
 };
+use super::queueing::congestion_pricing::CongestionPricingTimingSample;
 use super::queueing::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy};
 use crate::services::containers::{
     containermanager::ContainerManager,
@@ -37,6 +38,7 @@ lazy_static::lazy_static! {
 }
 
 pub struct CpuQueueingInvoker {
+    congestion_pricing: Option<Arc<CongestionPricingCoordinator>>,
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
     cmap: WorkerCharMap,
@@ -75,8 +77,11 @@ impl CpuQueueingInvoker {
         );
         let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
+        let (queue, congestion_pricing) = Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, &cpu, tid)?;
+
         let svc = Arc::new(CpuQueueingInvoker {
-            queue: Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, tid)?,
+            congestion_pricing,
+            queue,
             cont_manager,
             invocation_config,
             cpu,
@@ -106,19 +111,30 @@ impl CpuQueueingInvoker {
         invocation_config: &Arc<InvocationConfig>,
         cmap: &WorkerCharMap,
         cont_manager: &Arc<ContainerManager>,
+        cpu: &Arc<CpuResourceTracker>,
         tid: &TransactionId,
-    ) -> Result<Arc<dyn InvokerCpuQueuePolicy>> {
+    ) -> Result<(Arc<dyn InvokerCpuQueuePolicy>, Option<Arc<CongestionPricingCoordinator>>)> {
         if let Some(pol) = invocation_config.queue_policies.get(&Compute::CPU) {
-            Ok(match pol.as_str() {
-                "none" => Queueless::new()?,
-                "fcfs" => FCFSQueue::new(cont_manager.clone(), cmap.clone())?,
-                "minheap" => MinHeapQueue::new(tid, cmap.clone(), cont_manager.clone())?,
-                "minheap_ed" => MinHeapEDQueue::new(tid, cmap.clone(), cont_manager.clone())?,
-                "minheap_iat" => MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?,
-                "cold_pri" => ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?,
-                "scaling" => AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?,
+            match pol.as_str() {
+                "none" => Ok((Queueless::new()?, None)),
+                "fcfs" => Ok((FCFSQueue::new(cont_manager.clone(), cmap.clone())?, None)),
+                "minheap" => Ok((MinHeapQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
+                "minheap_ed" => Ok((MinHeapEDQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
+                "minheap_iat" => Ok((MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
+                "cold_pri" => Ok((ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?, None)),
+                "scaling" => Ok((AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?, None)),
+                "congestion_pricing" => {
+                    let flb_weak = cpu.fineloadbalancing().map(|flb| Arc::downgrade(&flb)).unwrap_or_default();
+                    let coordinator = CongestionPricingCoordinator::new(
+                        invocation_config.congestion_pricing.as_deref(),
+                        flb_weak,
+                        cmap.clone(),
+                        Some(cont_manager.clone()),
+                    );
+                    Ok((coordinator.clone(), Some(coordinator)))
+                },
                 unknown => anyhow::bail!("Unknown CPU queueing policy '{}'", unknown),
-            })
+            }
         } else {
             anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::CPU)
         }
@@ -380,24 +396,60 @@ impl CpuQueueingInvoker {
         permit: Option<Box<dyn Drop + Send>>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState, Utilization)> {
         debug!(tid = item.tid, "Internal invocation starting");
+        let (pricing_queue_ms, timing_started_at) = self
+            .congestion_pricing
+            .as_ref()
+            .map(|cp| cp.take_invocation_timing(&item.tid))
+            .unwrap_or_else(|| (0.0, std::time::Instant::now()));
         // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
-        let ctr_lock = match self
+        let container_acquire_started_at = std::time::Instant::now();
+        let acquire_result = match self
             .cont_manager
             .acquire_container(&item.registration, &item.tid, Compute::CPU)
         {
             EventualItem::Future(f) => {
                 self.cold_starting.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                f.await?
+                let result = f.await;
+                self.cold_starting.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                result
             },
-            EventualItem::Now(n) => n?,
+            EventualItem::Now(n) => n,
         };
-
-        self.cold_starting.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-        self.cpu
-            .cgroup_assigned_to_function(ctr_lock.container.cgroup_id(), &item.tid, item.registration.clone())?;
+        let ctr_lock = match acquire_result {
+            Ok(lock) => lock,
+            Err(error) => {
+                if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
+                    if let Some(cp) = &self.congestion_pricing {
+                        cp.on_cold_boot_finished(&item.registration.fqdn, 0);
+                    }
+                }
+                return Err(error);
+            },
+        };
+        if let Err(error) = self.cpu.cgroup_assigned_to_function(
+            ctr_lock.container.cgroup_id(),
+            &item.tid,
+            item.registration.clone(),
+        ) {
+            if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(cp) = &self.congestion_pricing {
+                    cp.on_cold_boot_finished(&item.registration.fqdn, 0);
+                }
+            }
+            return Err(error.into());
+        }
+        let assigned_domain_id = self.cpu.fineloadbalancing()
+            .and_then(|flb| flb.stats.tid_map.get(&item.tid).map(|v| *v as usize))
+            .unwrap_or(0);
+        if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(cp) = &self.congestion_pricing {
+                cp.on_cold_boot_finished(&item.registration.fqdn, assigned_domain_id);
+            }
+        }
+        let container_acquire_ms = container_acquire_started_at.elapsed().as_secs_f64() * 1000.0;
         self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = invoke_on_container(
             &item.registration,
@@ -414,15 +466,49 @@ impl CpuQueueingInvoker {
             &self.device_tput,
         )
         .await;
+        let exec_ms = result
+            .as_ref()
+            .ok()
+            .map(|(data, _, _, _, _)| data.duration_sec * 1000.0);
         // don't resolve Result of invoke, handle clean up and return as-is
         self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
         self.cpu
             .cgroup_released_for_function(ctr_lock.container.cgroup_id(), &item.tid, item.registration.clone());
+
+        if let Some(cp) = &self.congestion_pricing {
+            let wall_exec_ms = now().duration_since(start).as_secs_f64() * 1000.0;
+            let is_cold = matches!(result, Ok((_, _, _, ContainerState::Cold, _)));
+            let flb = self.cpu.fineloadbalancing();
+            let domain_id = assigned_domain_id;
+            let rho_obs = flb.as_ref()
+                .and_then(|f| f.domain_pelt_like_utilization_percent(domain_id as iluvatar_finesched::SchedGroupID).ok().flatten())
+                .map(|p| p / 100.0)
+                .unwrap_or(1.0);
+            cp.on_completion(domain_id, &item.registration.fqdn, wall_exec_ms, is_cold, rho_obs, None);
+        }
+
         // drop container and return to pool before releasing resource permit
         // otherwise it leads to unnecassary cold_starts
         drop(ctr_lock);
         drop(permit);
+        if let Some(cp) = &self.congestion_pricing {
+            cp.on_warm_container_available(&item.registration.fqdn, assigned_domain_id);
+        }
         self.signal.notify_waiters();
+        if let (Some(cp), Some(exec_ms)) = (&self.congestion_pricing, exec_ms) {
+            let total_e2e_ms = timing_started_at.elapsed().as_secs_f64() * 1000.0;
+            let post_overhead_ms = total_e2e_ms - pricing_queue_ms - container_acquire_ms - exec_ms;
+            cp.record_invocation_timing(
+                &item.tid,
+                &item.registration.fqdn,
+                CongestionPricingTimingSample {
+                    pricing_queue_ms,
+                    container_acquire_ms,
+                    exec_ms,
+                    post_overhead_ms,
+                },
+            );
+        }
         result
     }
 

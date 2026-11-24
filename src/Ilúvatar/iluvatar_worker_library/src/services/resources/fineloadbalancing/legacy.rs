@@ -97,7 +97,7 @@ pub struct FineLoadBalancingStruct {
     pub lbpolicy: LoadBalancingPolicy,
     pub cpu_core_utilization: Arc<CpuCoreUtilization>,
 
-    pub(super) core_metrics_reader: Option<CoreMetricsReader>,
+    pub core_metrics_reader: Option<CoreMetricsReader>,
     core_metrics_debug_counter: AtomicU64,
     workload_phase_debug_counter: AtomicU64,
 
@@ -903,7 +903,7 @@ impl DomainMutableData {
 #[derive(Debug)]
 pub struct DomainStruct {
     id: DomainId,
-    pub(super) assigned_cores: u32,
+    pub assigned_cores: u32,
     mut_data: Mutex<DomainMutableData>,
 }
 

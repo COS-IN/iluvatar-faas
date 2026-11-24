@@ -276,6 +276,11 @@ impl PreAllocatedGroups {
         self.sm.cmap_insert(cgroup_id, &cval);
     }
 
+    /// Return the last scheduler domain recorded for a cgroup, if known.
+    pub fn cgroup_domain(&self, cgroup_id: &str) -> Option<SchedGroupID> {
+        self.cid_map.get(cgroup_id).map(|entry| entry.gid)
+    }
+
     pub fn update_domain_timeslice(&self, gid: i32, timeslice: u64) {
         let _ = self.sm.gmap_update_timeslice(&gid, timeslice);
     }

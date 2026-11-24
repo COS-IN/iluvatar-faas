@@ -228,6 +228,10 @@ impl CpuResourceTracker {
         self.cores as usize
     }
 
+    pub fn fineloadbalancing(&self) -> Option<FineLoadBalancing> {
+        self.fineloadbalancing.clone()
+    }
+
     pub fn fine_scheduling_enabled(&self) -> bool {
         self.fineloadbalancing.is_some()
     }

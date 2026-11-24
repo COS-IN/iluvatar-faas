@@ -216,6 +216,34 @@ impl ContainerManager {
         (warm, prewarm)
     }
 
+    /// Snapshot idle warm/prewarm and all existing CPU containers for a function.
+    /// Running containers are included in `total`; they cannot serve a second
+    /// invocation yet, but their existence means a concurrent cold boot is avoidable.
+    pub fn cpu_container_wave_counts(&self, fqdn: &str) -> (usize, usize, usize) {
+        let mut idle_warm = 0;
+        let mut idle_prewarm = 0;
+        for container in self.cpu_containers.iter_idle_fqdn(fqdn) {
+            match container.state() {
+                ContainerState::Warm => idle_warm += 1,
+                ContainerState::Prewarm => idle_prewarm += 1,
+                _ => (),
+            }
+        }
+        let total = self.cpu_containers.iter_fqdn(fqdn).len();
+        (idle_warm, idle_prewarm, total)
+    }
+
+    /// Scheduler domains last associated with currently idle warm CPU containers.
+    /// Containers without a recorded cgroup placement are omitted.
+    pub fn idle_cpu_warm_cgroups(&self, fqdn: &str) -> Vec<String> {
+        self.cpu_containers
+            .iter_idle_fqdn(fqdn)
+            .into_iter()
+            .filter(|container| container.state() == ContainerState::Warm)
+            .map(|container| container.cgroup_id().clone())
+            .collect()
+    }
+
     /// Returns the best possible idle container's [ContainerState] at this time
     /// Not a guarantee it will be available
     pub fn warm_container(&self, fqdn: &str, gpu_token: &GpuToken) -> bool {

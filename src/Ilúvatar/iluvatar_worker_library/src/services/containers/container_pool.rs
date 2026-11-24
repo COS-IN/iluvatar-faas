@@ -79,6 +79,15 @@ impl ContainerPool {
         ctrs
     }
 
+    /// All idle and running containers for one function.
+    pub fn iter_fqdn(&self, fqdn: &str) -> Vec<Container> {
+        let mut containers = self.iter_idle_fqdn(fqdn);
+        if let Some(function_pool) = self.running_pool.get(fqdn) {
+            containers.extend(function_pool.iter().cloned());
+        }
+        containers
+    }
+
     /// Add the container to the pool
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, container, pool, pool_type), fields(tid=tid)))]
     fn add_container(&self, container: Container, pool: &Pool, tid: &TransactionId, pool_type: PoolType) {
