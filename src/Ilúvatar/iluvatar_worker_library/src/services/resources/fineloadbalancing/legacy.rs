@@ -269,6 +269,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 "power_of_two_det" => Some(Box::new(super::PowerOfTwo::new_deterministic(
                     fineloadbalancing_weak.clone(),
                 ))),
+                "hash" => Some(Box::new(super::Hash::new(fineloadbalancing_weak.clone()))),
                 "power_of_two_peek" => Some(Box::new(super::PowerOfTwoPeek::new(fineloadbalancing_weak.clone()))),
                 "power_of_two_peek_det" => Some(Box::new(super::PowerOfTwoPeek::new_deterministic(
                     fineloadbalancing_weak.clone(),
@@ -546,6 +547,16 @@ impl FineLoadBalancingStruct {
             return;
         }
 
+        let domain_scheduled_invocations = self.stats.domain_map.get(&domain_id)
+            .map(|stats| stats.scheduled_invocations.load(Ordering::Relaxed))
+            .unwrap_or_default();
+        let domain_used_cores = self.system_domains.immutable_clone().get(domain_id as usize)
+            .map(|domain| domain.used_cores())
+            .unwrap_or_default();
+        let cpu_queue_snapshot = self.cpu_queue_snapshot();
+        let cpu_queue_queued_invocations = cpu_queue_snapshot.map(|snapshot| snapshot.queued_invocations);
+        let cpu_queue_estimated_work_secs = cpu_queue_snapshot.map(|snapshot| snapshot.estimated_work_secs);
+
         let Some(reader) = self.core_metrics_reader.as_ref() else {
             return;
         };
@@ -594,6 +605,10 @@ impl FineLoadBalancingStruct {
                 sample_every,
                 domain_id,
                 cpu = snapshot.cpu,
+                domain_scheduled_invocations,
+                domain_used_cores,
+                cpu_queue_queued_invocations = ?cpu_queue_queued_invocations,
+                cpu_queue_estimated_work_secs = ?cpu_queue_estimated_work_secs,
                 local_dsq_len = snapshot.local_dsq_len,
                 domain_dsq_len = snapshot.domain_dsq_len,
                 dsq_len = snapshot.dsq_len,
@@ -607,6 +622,13 @@ impl FineLoadBalancingStruct {
                 domain_power_watts = ?domain_power_watts,
                 pelt_like_utilization_percent = snapshot.pelt_like_utilization_percent,
                 domain_pelt_like_utilization_percent = ?self.domain_pelt_like_utilization_percent(domain_id),
+                idle_while_loaded_ns = snapshot.idle_while_loaded_ns,
+                idle_with_queued_events = snapshot.idle_with_queued_events,
+                dispatch_calls = snapshot.dispatch_calls,
+                dispatch_misses = snapshot.dispatch_misses,
+                steal_attempts = snapshot.steal_attempts,
+                steal_successes = snapshot.steal_successes,
+                enq_latency_hist = ?snapshot.enq_latency_hist,
                 "[finesched][core-metrics] sampled assigned domain"
             ),
             Err(error) => warn!(

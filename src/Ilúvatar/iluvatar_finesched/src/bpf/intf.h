@@ -29,7 +29,9 @@ enum consts {
     MAX_GROUPS = 48,
     MAX_MAP_ENTRIES_CMAP = 1024,
     MAX_MAP_ENTRIES_TASK_STORE = (16 * 4096),
-    MAX_PATH = 100,
+    // systemd user-session ancestors plus container scope names can exceed
+    // 100 bytes; keep enough room to classify the leaf cgroup reliably.
+    MAX_PATH = 256,
     // BPF arrays need a verifier-visible upper bound. The actual CPU-ID range
     // and online set are supplied by the userspace loader at runtime.
     MAX_CPUS = 1024,

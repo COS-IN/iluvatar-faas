@@ -637,7 +637,6 @@ void BPF_STRUCT_OPS(finesched_quiescent, struct task_struct *p, u64 deq_flags) {
 SEC("fentry/cpu_cgroup_attach")
 s32 BPF_PROG(cpu_cgroup_attach, struct cgroup_taskset *tset) {
     char cgroup_name[MAX_PATH];
-    char prefix[MAX_PATH] = "docker-";
     s32 prefix_len = 7;
     s32 err;
 
@@ -649,7 +648,7 @@ s32 BPF_PROG(cpu_cgroup_attach, struct cgroup_taskset *tset) {
         return 0;
     }
 
-    if (!prefix_match(prefix, cgroup_name, /*len=*/prefix_len)) {
+    if (!prefix_match("docker-", cgroup_name, /*len=*/prefix_len)) {
         return 0;
     }
 

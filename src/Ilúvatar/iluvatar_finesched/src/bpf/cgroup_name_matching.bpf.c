@@ -54,10 +54,10 @@ static char *format_cgrp_path(struct cgroup *cgrp) {
             path[len++] = '/';
 
         if (len >= MAX_PATH - 1) {
-            if (len == MAX_PATH) {
-                path[len - 1] = '\0';
-            }
-            scx_bpf_error("cgrp_path_buf overflow: %s", path);
+            /* Long, unrelated cgroup paths are expected on the host. A path
+             * we cannot represent is simply not a FineSched match; it must
+             * not disable the scheduler for every task. */
+            dbg("cgrp_path_buf overflow; skipping cgroup at level %u", level);
             return NULL;
         }
 
@@ -72,10 +72,7 @@ static char *format_cgrp_path(struct cgroup *cgrp) {
     }
 
     if (len >= MAX_PATH - 2) {
-        if (len == MAX_PATH) {
-            path[len - 1] = '\0';
-        }
-        scx_bpf_error("cgrp_path_buf overflow: %s", path);
+        dbg("cgrp_path_buf overflow; skipping cgroup path");
         return NULL;
     }
     path[len] = '/';

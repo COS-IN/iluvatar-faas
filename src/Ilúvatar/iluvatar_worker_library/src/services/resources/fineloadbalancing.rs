@@ -230,6 +230,66 @@ impl LoadBalancingPolicyTrait for PowerOfTwo {
     }
 }
 
+/// Stable single-domain placement using the first candidate hash from
+/// `power_of_two_det`, without comparing a second domain.
+pub struct Hash {
+    fineloadbalancing: FineLoadBalancingWeak,
+}
+
+impl Hash {
+    pub fn new(fineloadbalancing: FineLoadBalancingWeak) -> Self {
+        Self { fineloadbalancing }
+    }
+}
+
+impl LoadBalancingPolicyTrait for Hash {
+    fn assign_domain_to_function_request(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+    ) -> Option<SchedGroupID> {
+        let fineloadbalancing = self.fineloadbalancing.upgrade()?;
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        if domains.is_empty() {
+            return None;
+        }
+
+        let index = deterministic_domain_index(&reg.fqdn, domains.len());
+        let domain = &domains[index];
+        domain.acquire_cores_oc(reg.cpus);
+        debug!(
+            tid=%tid,
+            fqdn=%reg.fqdn,
+            selected_domain=%domain.schedgroup_id(),
+            candidate_selection="fqdn_hash",
+            lbpolicy=%"hash",
+            "[finesched] selected domain by stable hash"
+        );
+        Some(domain.schedgroup_id())
+    }
+
+    fn invoke_is_complete(&self, _cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
+    }
+
+    fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
+    }
+
+    fn move_reservation(&self, reg: &RegisteredFunction, from: SchedGroupID, to: SchedGroupID) -> bool {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return false;
+        };
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        let (Some(source), Some(target)) = (domains.get(from as usize), domains.get(to as usize)) else {
+            return false;
+        };
+        source.return_cpus_and_release(reg.cpus);
+        target.acquire_cores_oc(reg.cpus);
+        true
+    }
+}
+
 /// Power of two choices that uses the next queued invocation's estimated CPU
 /// work as a packing hint.
 pub struct PowerOfTwoPeek {
@@ -452,13 +512,23 @@ fn deterministic_domain_choices(key: &str, domain_count: usize) -> (usize, Optio
         })
     }
 
+    let first = deterministic_domain_index(key, domain_count);
     let count = domain_count as u64;
-    let first = (fnv1a(key, 0xcbf2_9ce4_8422_2325) % count) as usize;
     let mut second = (fnv1a(key, 0x8422_2325_cbf2_9ce4) % count) as usize;
     if second == first {
         second = (second + 1) % domain_count;
     }
     (first, Some(second))
+}
+
+fn deterministic_domain_index(key: &str, domain_count: usize) -> usize {
+    if domain_count <= 1 {
+        return 0;
+    }
+    let hash = key.as_bytes().iter().fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    });
+    (hash % domain_count as u64) as usize
 }
 
 fn return_power_of_two_domain(

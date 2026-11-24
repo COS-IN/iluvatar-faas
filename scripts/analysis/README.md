@@ -138,6 +138,68 @@ startup, shutdown, and partial boundary samples.
 
 ## FineSched domain metrics
 
+`extract_load_latency.py` builds a row-per-invocation feature table from the
+load-generator CSV, worker JSON log, perf interval CSV, and turbostat output:
+
+```bash
+python3 scripts/analysis/extract_load_latency.py \
+  /path/to/result-4cpu /path/to/result-8cpu /path/to/result-12cpu \
+  --output /path/to/features-per-invocation.csv
+```
+
+It retains invocation identity/status and assignment-time context, and adds one
+target column, `target_function_execution_ms`, computed from
+`code_duration_sec * 1000`. This is function-code execution latency, not client
+E2E or full worker-service time. E2E, worker duration, queue wait, CPU time,
+and other post-assignment durations are deliberately excluded from the
+predictor table to avoid target leakage. It also adds sampled FineSched metrics
+and WC counters joined by exact `tid`. WC totals are kept;
+per-CPU interval deltas, rates, miss/success ratios, and enqueue-histogram
+bucket deltas are derived from consecutive samples on the same CPU. The first
+sample and counter resets have no delta. The worker's effective CPU-domain map
+is used to aggregate perf events and turbostat activity by domain as well as
+system-wide.
+
+Perf values are assigned from the one-second interval containing the worker
+assignment timestamp. Turbostat values use the one-second block aligned from
+`profiling-start.txt`, following `cpu_sched.py`'s timing convention. Both
+joins are time-aligned estimates, not per-invocation measurements; their sample
+age is included. Missing profiler files or unmatched samples stay empty. Keep
+`wc_metrics_enabled=true` and a nonzero `core_metrics_debug_every` in the
+worker config to collect WC/domain samples; `core_metrics_debug_every=1`
+samples each assignment but increases log volume.
+
+`analyze_feature_dataset.py` ranks numeric/categorical features against the
+execution target using pairwise Pearson and Spearman correlations, univariate
+OLS fits, and Benjamini-Hochberg adjusted p-values. It also fits a multivariate
+Ridge regression using top training-set correlations and evaluates it on a
+chronological 80/20 holdout. It reports all-successful and warm-only cohorts by
+default. It requires NumPy and SciPy. Because perf/turbostat values repeat
+across invocations within their one-second windows, pairwise p-values assume
+independence that the data does not have; treat them as descriptive. The report
+includes distinct feature-value counts to show this repeated-sample structure.
+
+```bash
+python3 scripts/analysis/analyze_feature_dataset.py \
+  /path/to/features-per-invocation.csv
+```
+
+Outputs include `feature_correlations.csv`, `ridge_coefficients.csv`,
+`model_summary.json`, and `analysis.md` under a sibling `*-regression-analysis/`
+directory. The script requires `target_function_execution_ms`; it does not
+accept E2E latency as a regression target.
+
+`summarize_feature_distributions.py` reports per-column missingness, unique
+counts, numeric percentiles/spread, and categorical frequency tables:
+
+```bash
+python3 scripts/analysis/summarize_feature_distributions.py \
+  /path/to/features-per-invocation.csv
+```
+
+It writes `feature_distributions.csv`, `categorical_frequencies.csv`, and
+`distribution_summary.md` under a sibling `*-distribution/` directory.
+
 `analyze_domain_metrics.py` extracts sampled per-domain ProcStat utilization,
 PELT-like utilization, power, and assignment-time `used_cores` from a worker
 JSON log. When an `output-*.csv` invocation file is beside the worker log, it
