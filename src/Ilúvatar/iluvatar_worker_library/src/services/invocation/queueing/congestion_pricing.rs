@@ -15,6 +15,7 @@ use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
 use parking_lot::Mutex;
+use rand::Rng;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::sync::{Arc, Weak};
@@ -32,11 +33,18 @@ const DEFAULT_MAX_QUEUE_PER_DOMAIN: usize = 4096;
 const MAX_SCHEDULING_SLACK_MS: f64 = 300.0;
 /// Maximum consecutive warm express-lane pops while normal ready work is waiting.
 const MAX_EXPRESS_STREAK: u32 = 8;
-/// Soft-affinity migration penalty as a fraction of cold boot duration (C_mig = 0.01 * t_boot).
-const MIGRATION_COST_BOOT_FRACTION: f64 = 0.01;
+/// Scale-invariant soft-affinity utilization hysteresis margin.
+/// `C_mig = SOFT_AFFINITY_RHO_MARGIN * s_i`, so any function (tiny `hello` or large
+/// `pyaes`) stays on its warm domain while `rho_warm - rho_alt <= 0.20` (~1 core on a
+/// 6-core domain) and spills once an alternate domain is meaningfully quieter (>= 2 cores).
+const SOFT_AFFINITY_RHO_MARGIN: f64 = 0.20;
 
 fn scheduling_slack_ms(s_i: f64) -> f64 {
     (0.5 * s_i.max(0.0)).min(MAX_SCHEDULING_SLACK_MS)
+}
+
+fn soft_affinity_migration_cost(s_i: f64) -> f64 {
+    SOFT_AFFINITY_RHO_MARGIN * s_i.max(0.0)
 }
 
 fn placement_ranking_cost(
@@ -48,6 +56,24 @@ fn placement_ranking_cost(
 ) -> f64 {
     let migration_cost = if is_warm_domain { 0.0 } else { c_mig };
     rho_d * s_i + overload_toll.max(0.0) + migration_cost
+}
+
+/// Build a Power-of-Two candidate pair `[primary, alt]` from `pool`, picking one
+/// alternate domain `alt != primary` using `random_offset`. Prevents synchronized
+/// herding across all domains while keeping `primary` (warm/home) in every comparison.
+fn select_po2_candidates(primary: usize, pool: &[usize], random_offset: usize) -> Vec<usize> {
+    let mut others: Vec<usize> = pool
+        .iter()
+        .copied()
+        .filter(|&d| d != primary)
+        .collect();
+    others.sort_unstable();
+    others.dedup();
+    if others.is_empty() {
+        return vec![primary];
+    }
+    let alt = others[random_offset % others.len()];
+    vec![primary, alt]
 }
 
 #[derive(Clone)]
@@ -843,8 +869,14 @@ impl CongestionPricingCoordinator {
 
     fn read_rho(&self, domain_id: SchedGroupID, state: &CoordinatorState) -> f64 {
         if let Some(flb) = self.fineloadbalancing.upgrade() {
+            let mut rho = 0.0_f64;
+            if let Some(domain) = flb.system_domains.immutable_clone().get(domain_id as usize) {
+                let cap = domain.assigned_cores.max(1) as f64;
+                rho = rho.max((domain.used_cores() as f64) / cap);
+            }
             if let Ok(Some(pelt_pct)) = flb.domain_pelt_like_utilization_percent(domain_id) {
                 let pelt_ratio = (pelt_pct / 100.0).max(0.0);
+                rho = rho.max(pelt_ratio);
                 if pelt_pct >= 99.0 {
                     if let Some(reader) = flb.core_metrics_reader.as_ref() {
                         if let Some(group) = flb.preallocated_domains.get_schedgroup(domain_id) {
@@ -856,13 +888,13 @@ impl CongestionPricingCoordinator {
                                 }
                             }
                             if dsq_sum > 0 {
-                                return 1.0 + (dsq_sum as f64) / (self.cores_per_domain as f64);
+                                rho = rho.max(1.0 + (dsq_sum as f64) / (self.cores_per_domain as f64));
                             }
                         }
                     }
                 }
-                return pelt_ratio;
             }
+            return rho;
         }
         if let Some(dom) = state.domains.get(domain_id as usize) {
             (dom.active_weight_sum / (self.cores_per_domain as f64)).max(0.0)
@@ -1294,32 +1326,35 @@ impl CongestionPricingCoordinator {
         // Warm Express-Lane Bypass: sub-2.0ms warm tasks finish within a scheduler tick
         // and bypass user-space congestion gating without distorting r_min or active_weight_sum.
         if !likely_cold && !force_coalesce && s_i < 2.0 {
-            let candidates: Vec<usize> = if idle_warm_count > 0 {
-                warm_candidates.clone()
+            let primary = if !warm_domains.is_empty() {
+                warm_domains
+                    .iter()
+                    .copied()
+                    .min_by(|a, b| {
+                        let ra = self.read_rho(*a as SchedGroupID, &state);
+                        let rb = self.read_rho(*b as SchedGroupID, &state);
+                        ra.total_cmp(&rb)
+                    })
+                    .unwrap_or(home_domain)
             } else {
-                home_rotated_domains.clone()
+                home_domain
             };
-            let mut best_dom = candidates.first().copied().unwrap_or(home_domain);
-            let mut min_rho = f64::INFINITY;
-
-            let mut found_idle = false;
-            for d in candidates.iter().copied() {
-                let rho = self.read_rho(d as SchedGroupID, &state);
-                if rho < 1.0 {
-                    best_dom = d;
-                    found_idle = true;
-                    break;
-                } else if rho < min_rho {
-                    best_dom = d;
-                    min_rho = rho;
-                }
-            }
-            if !found_idle && idle_available == 0 && spill_domain != home_domain {
-                let rho_spill = self.read_rho(spill_domain as SchedGroupID, &state);
-                if rho_spill < min_rho {
-                    best_dom = spill_domain;
-                }
-            }
+            let po2_candidates = select_po2_candidates(
+                primary,
+                &home_rotated_domains,
+                rand::rng().random_range(0..n_doms),
+            );
+            let c_mig = soft_affinity_migration_cost(s_i);
+            let best_dom = po2_candidates
+                .into_iter()
+                .min_by(|a, b| {
+                    let ra = self.read_rho(*a as SchedGroupID, &state);
+                    let rb = self.read_rho(*b as SchedGroupID, &state);
+                    let ca = placement_ranking_cost(ra, s_i, 0.0, c_mig, warm_domains.contains(a));
+                    let cb = placement_ranking_cost(rb, s_i, 0.0, c_mig, warm_domains.contains(b));
+                    (OrderedFloat(ca), OrderedFloat(ra)).cmp(&(OrderedFloat(cb), OrderedFloat(rb)))
+                })
+                .unwrap_or(primary);
 
             trace!(
                 tid = %item.tid,
@@ -1357,9 +1392,28 @@ impl CongestionPricingCoordinator {
         };
 
         let candidates: Vec<usize> = match wave_state {
-            // Compare marginal welfare only among domains with warm-ready
-            // capacity; an emptier cold-only domain must not bypass a warm.
-            ColdWaveState::WarmIdle => warm_idle_candidate_domains(&warm_candidates, &home_rotated_domains),
+            // Power-of-Two soft-affinity sampling: compare the best warm (or home)
+            // domain against one random alternate domain to prevent burst herding.
+            ColdWaveState::WarmIdle => {
+                let primary = if !warm_domains.is_empty() {
+                    warm_domains
+                        .iter()
+                        .copied()
+                        .min_by(|a, b| {
+                            let ra = self.read_rho(*a as SchedGroupID, &state);
+                            let rb = self.read_rho(*b as SchedGroupID, &state);
+                            ra.total_cmp(&rb)
+                        })
+                        .unwrap_or(home_domain)
+                } else {
+                    home_domain
+                };
+                select_po2_candidates(
+                    primary,
+                    &home_rotated_domains,
+                    rand::rng().random_range(0..n_doms),
+                )
+            },
             ColdWaveState::Pioneer => {
                 let no_cold_boots: Vec<usize> = home_rotated_domains.iter().copied()
                     .filter(|domain| state.domains[*domain].cold_booting == 0)
@@ -1411,7 +1465,7 @@ impl CongestionPricingCoordinator {
             price_candidates.push((candidate, price));
         }
         let (chosen_domain, mut max_net) = if wave_state == ColdWaveState::WarmIdle {
-            let c_mig = MIGRATION_COST_BOOT_FRACTION * t_boot;
+            let c_mig = soft_affinity_migration_cost(s_i);
             let best_warm = price_candidates
                 .iter()
                 .enumerate()
@@ -1595,12 +1649,28 @@ impl CongestionPricingCoordinator {
     }
 
     /// Re-evaluate domain placement at dispatch time using live domain load and
-    /// warm-container locality, transferring any active reservation cleanly.
+    /// warm-container locality with Power-of-Two sampling, transferring any active
+    /// reservation cleanly.
     fn refresh_dispatch_domain_locked(
         &self,
         state: &mut CoordinatorState,
         item: &Arc<EnqueuedInvocation>,
         warm_domains: &[usize],
+    ) {
+        let n_doms = state.domains.len();
+        if n_doms <= 1 {
+            return;
+        }
+        let random_offset = rand::rng().random_range(0..n_doms);
+        self.refresh_dispatch_domain_with_offset_locked(state, item, warm_domains, random_offset);
+    }
+
+    fn refresh_dispatch_domain_with_offset_locked(
+        &self,
+        state: &mut CoordinatorState,
+        item: &Arc<EnqueuedInvocation>,
+        warm_domains: &[usize],
+        random_offset: usize,
     ) {
         let n_doms = state.domains.len();
         if n_doms <= 1 {
@@ -1627,13 +1697,21 @@ impl CongestionPricingCoordinator {
         let w_eff = s_i.powf(-self.beta);
         let now_ms = state.now_ms();
         let aff_domain = if !is_cold && !warm_domains.is_empty() {
-            warm_domains[0]
+            warm_domains
+                .iter()
+                .copied()
+                .min_by(|a, b| {
+                    let ra = self.read_rho(*a as SchedGroupID, state);
+                    let rb = self.read_rho(*b as SchedGroupID, state);
+                    ra.total_cmp(&rb)
+                })
+                .unwrap_or(warm_domains[0])
         } else {
             home_domain
         };
 
         let candidates: Vec<usize> = if !is_cold {
-            home_rotated.clone()
+            select_po2_candidates(aff_domain, &home_rotated, random_offset)
         } else {
             let no_other_cold: Vec<usize> = home_rotated
                 .iter()
@@ -1643,16 +1721,22 @@ impl CongestionPricingCoordinator {
                     boots == 0 || (d == current_dom && reserved_cold_boot && boots == 1)
                 })
                 .collect();
-            if no_other_cold.is_empty() {
+            let pool = if no_other_cold.is_empty() {
                 home_rotated
             } else {
                 no_other_cold
-            }
+            };
+            let primary = if pool.contains(&current_dom) {
+                current_dom
+            } else {
+                pool[0]
+            };
+            select_po2_candidates(primary, &pool, random_offset)
         };
 
         let mut best_dom = current_dom;
         let mut best_key: Option<(OrderedFloat<f64>, OrderedFloat<f64>, OrderedFloat<f64>, usize)> = None;
-        let c_mig = MIGRATION_COST_BOOT_FRACTION * t_boot;
+        let c_mig = soft_affinity_migration_cost(s_i);
         for d in candidates {
             let rho_d = self.read_rho(d as SchedGroupID, state);
             let aff_target = if !is_cold && warm_domains.contains(&d) { d } else { aff_domain };
@@ -1913,6 +1997,25 @@ mod tests {
 
     #[test]
     fn warm_idle_ranks_all_domains_and_spills_under_soft_affinity() {
+        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 0), vec![1, 0]);
+        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 1), vec![1, 2]);
+        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 2), vec![1, 3]);
+
+        // Scale-invariant soft-affinity hysteresis works identically for tiny (hello) and large (pyaes) functions.
+        for s_i in [0.05, 50.0, 300.0] {
+            let c_mig = soft_affinity_migration_cost(s_i);
+            // Warm domain at rho=0.35 vs alternate at rho=0.20 (diff 0.15 <= 0.20) -> warm wins.
+            assert!(
+                placement_ranking_cost(0.35, s_i, 0.0, c_mig, true)
+                    < placement_ranking_cost(0.20, s_i, 0.0, c_mig, false)
+            );
+            // Warm domain at rho=0.60 vs alternate at rho=0.20 (diff 0.40 > 0.20) -> alternate wins.
+            assert!(
+                placement_ranking_cost(0.20, s_i, 0.0, c_mig, false)
+                    < placement_ranking_cost(0.60, s_i, 0.0, c_mig, true)
+            );
+        }
+
         let cmap = worker_char_map();
         cmap.update("503.graph-bfs-0.0.1", Chars::CpuWarmTime, 50.0);
         let coordinator = CongestionPricingCoordinator::new(
@@ -1926,21 +2029,21 @@ mod tests {
             state.domains = (0..4).map(|d| DomainState::new(d as SchedGroupID)).collect();
         }
 
-        // Warm domain 1 has rho_1 - rho_0 = 0.025 <= C_mig / s_i (2.5 / 50 = 0.05) -> keeps domain 1.
+        // Warm domain 1 vs alternate domain 0 (offset=0): rho_1 - rho_0 = 0.15 <= 0.20 -> keeps domain 1.
         let item_keep = invocation_for("503.graph-bfs-0.0.1", "tid-aff-keep");
         coordinator.add_item_to_queue(&item_keep, None).unwrap();
         item_keep.likely_cold.store(false, std::sync::atomic::Ordering::Relaxed);
         {
             let mut state = coordinator.state.lock();
             state.domains[0].active_weight_sum = 0.0; // rho = 0.00
-            state.domains[1].active_weight_sum = 0.1; // rho = 0.025 (diff 0.025 <= 0.05)
+            state.domains[1].active_weight_sum = 0.6; // rho = 0.15 (diff 0.15 <= 0.20)
             state.domains[2].active_weight_sum = 2.0;
             state.domains[3].active_weight_sum = 2.0;
-            coordinator.refresh_dispatch_domain_locked(&mut state, &item_keep, &[1]);
+            coordinator.refresh_dispatch_domain_with_offset_locked(&mut state, &item_keep, &[1], 0);
         }
         assert_eq!(item_keep.preferred_domain(), Some(1));
 
-        // Warm domain 1 has rho_1 - rho_2 = 0.50 > C_mig / s_i (0.05) -> spills to idle domain 2.
+        // Warm domain 1 vs alternate domain 2 (offset=1): rho_1 - rho_2 = 0.50 > 0.20 -> spills to idle domain 2.
         let item_spill = invocation_for("503.graph-bfs-1-0.0.1", "tid-aff-spill");
         coordinator.cmap.update("503.graph-bfs-1-0.0.1", Chars::CpuWarmTime, 50.0);
         coordinator.add_item_to_queue(&item_spill, None).unwrap();
@@ -1949,9 +2052,9 @@ mod tests {
             let mut state = coordinator.state.lock();
             state.domains[0].active_weight_sum = 2.0;
             state.domains[1].active_weight_sum = 2.0; // rho = 0.50
-            state.domains[2].active_weight_sum = 0.0; // rho = 0.00 (diff 0.50 > 0.25)
+            state.domains[2].active_weight_sum = 0.0; // rho = 0.00 (diff 0.50 > 0.20)
             state.domains[3].active_weight_sum = 2.0;
-            coordinator.refresh_dispatch_domain_locked(&mut state, &item_spill, &[1]);
+            coordinator.refresh_dispatch_domain_with_offset_locked(&mut state, &item_spill, &[1], 1);
         }
         assert_eq!(item_spill.preferred_domain(), Some(2));
     }
@@ -2167,22 +2270,19 @@ mod tests {
             .added_weight;
         assert!(added_w > 0.0);
 
-        // Make initial_dom heavily loaded and another domain lightly loaded before pop_queue.
-        let light_dom = (initial_dom + 2) % 4;
+        // Make initial_dom heavily loaded and all other domains idle before pop_queue
+        // so any Po2 alternate deterministically moves off initial_dom.
         {
             let mut state = coordinator.state.lock();
-            for (idx, dom) in state.domains.iter_mut().enumerate() {
-                if idx != light_dom {
-                    dom.active_weight_sum += 10.0;
-                }
-            }
+            state.domains[initial_dom].active_weight_sum += 10.0;
         }
 
         let popped = coordinator.pop_queue();
-        assert_eq!(popped.preferred_domain(), Some(light_dom as SchedGroupID));
+        let new_dom = popped.preferred_domain().unwrap() as usize;
+        assert_ne!(new_dom, initial_dom);
         let state = coordinator.state.lock();
-        assert_eq!(state.active_admissions.get(&popped.tid).unwrap().domain_id, light_dom);
+        assert_eq!(state.active_admissions.get(&popped.tid).unwrap().domain_id, new_dom);
         assert!((state.domains[initial_dom].active_weight_sum - 10.0).abs() < 1e-9);
-        assert!((state.domains[light_dom].active_weight_sum - added_w).abs() < 1e-9);
+        assert!((state.domains[new_dom].active_weight_sum - added_w).abs() < 1e-9);
     }
 }
