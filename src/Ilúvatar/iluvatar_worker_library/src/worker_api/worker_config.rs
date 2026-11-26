@@ -456,9 +456,11 @@ pub struct CongestionPricingConfig {
     pub welfare_beta: Option<f64>,
     /// Normalized load where warm-task stretch begins (default 1.05).
     pub rho_knee: Option<f64>,
+    /// Coalesce followers onto an in-flight cold-start wave (default true).
+    pub cold_wave_coalescing: Option<bool>,
     /// Physical cores per FineSched domain. Auto-detected from fineloadbalancing config if None.
     pub cores_per_domain: Option<u32>,
-    /// Maximum queued invocations per domain before admission is refused (default 64).
+    /// Maximum queued invocations per domain before admission is refused (default 4096).
     pub max_queue_per_domain: Option<usize>,
     /// Optional seed calibration; None means use zero-config defaults.
     pub pricing_calibration: Option<CongestionPricingCalibration>,

@@ -155,6 +155,9 @@ impl CpuQueueingInvoker {
                 if let Some(permit) = self.acquire_resources_to_run(&item).await {
                     if !item.lock() {
                         // already acquired
+                        if let Some(cp) = &self.congestion_pricing {
+                            cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, false);
+                        }
                         break;
                     }
                     self.spawn_tokio_worker(self.clone(), item, permit);
@@ -227,7 +230,11 @@ impl CpuQueueingInvoker {
             return None;
         }
         let mut ret = vec![];
-        match self.cpu.acquire_cores(&item.registration, &item.tid).await {
+        match self
+            .cpu
+            .acquire_cores_with_preferred(&item.registration, &item.tid, item.preferred_domain())
+            .await
+        {
             Ok(c) => {
                 if c.is_some() {
                     ret.push(Box::new(c.unwrap()) as Box<dyn Drop + Send>);
@@ -421,11 +428,10 @@ impl CpuQueueingInvoker {
         let ctr_lock = match acquire_result {
             Ok(lock) => lock,
             Err(error) => {
-                if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
-                    if let Some(cp) = &self.congestion_pricing {
-                        cp.on_cold_boot_finished(&item.registration.fqdn, 0);
-                    }
+                if let Some(cp) = &self.congestion_pricing {
+                    cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, true);
                 }
+                self.signal.notify_waiters();
                 return Err(error);
             },
         };
@@ -434,11 +440,13 @@ impl CpuQueueingInvoker {
             &item.tid,
             item.registration.clone(),
         ) {
-            if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
-                if let Some(cp) = &self.congestion_pricing {
-                    cp.on_cold_boot_finished(&item.registration.fqdn, 0);
-                }
+            let preferred_dom = item.preferred_domain().map(|d| d as usize).unwrap_or(0);
+            drop(ctr_lock);
+            if let Some(cp) = &self.congestion_pricing {
+                cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, false);
+                cp.on_warm_container_available(&item.registration.fqdn, preferred_dom);
             }
+            self.signal.notify_waiters();
             return Err(error.into());
         }
         let assigned_domain_id = self.cpu.fineloadbalancing()
@@ -484,7 +492,15 @@ impl CpuQueueingInvoker {
                 .and_then(|f| f.domain_pelt_like_utilization_percent(domain_id as iluvatar_finesched::SchedGroupID).ok().flatten())
                 .map(|p| p / 100.0)
                 .unwrap_or(1.0);
-            cp.on_completion(domain_id, &item.registration.fqdn, wall_exec_ms, is_cold, rho_obs, None);
+            cp.on_invocation_completed(
+                &item.tid,
+                domain_id,
+                &item.registration.fqdn,
+                wall_exec_ms,
+                is_cold,
+                rho_obs,
+                exec_ms,
+            );
         }
 
         // drop container and return to pool before releasing resource permit

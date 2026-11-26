@@ -201,9 +201,22 @@ impl CpuResourceTracker {
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
     ) -> Result<Option<DomainCpuPermit>, tokio::sync::AcquireError> {
+        self.acquire_cores_with_preferred(reg, tid, None).await
+    }
+
+    /// Blocks until an owned permit can be acquired, honoring an optional queue-selected domain.
+    pub async fn acquire_cores_with_preferred(
+        &self,
+        reg: &Arc<RegisteredFunction>,
+        tid: &TransactionId,
+        preferred_domain: Option<SchedGroupID>,
+    ) -> Result<Option<DomainCpuPermit>, tokio::sync::AcquireError> {
         debug!(cpu_sem =? self.concurrency_semaphore, "CPUResourceMananger");
         if let Some(sem) = &self.concurrency_semaphore {
-            if self.assign_domain_to_function_request(tid, reg.clone()).is_ok() {
+            if self
+                .assign_domain_to_function_request_with_preferred(tid, reg.clone(), preferred_domain)
+                .is_ok()
+            {
                 return match sem.clone().acquire_many_owned(reg.cpus).await {
                     Ok(p) => {
                         let release_domain_callback = self.build_release_domain_callback(tid, reg.clone());
@@ -407,6 +420,15 @@ impl CpuResourceTracker {
     }
 
     pub fn assign_domain_to_function_request(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) -> Result<()> {
+        self.assign_domain_to_function_request_with_preferred(tid, reg, None)
+    }
+
+    pub fn assign_domain_to_function_request_with_preferred(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+        preferred_domain: Option<SchedGroupID>,
+    ) -> Result<()> {
         let fqdn = reg.fqdn.as_str();
         if let Some(fineloadbalancing) = self.fineloadbalancing.as_ref() {
             let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
@@ -417,54 +439,63 @@ impl CpuResourceTracker {
             };
 
             let lbpolicy = &fineloadbalancing.lbpolicy;
-            let mut domain_id = lbpolicy.assign_domain_to_function_request(tid, reg.clone());
-            if let Some(selected_id) = domain_id {
-                let config = &fineloadbalancing.config;
-                let threshold = config.burst_threshold;
-                if config.burst_mode == crate::worker_api::worker_config::FineSchedBurstMode::Spillover
-                    && threshold.is_finite()
-                    && (0.0..=1.0).contains(&threshold)
-                {
-                    let selected_load = fineloadbalancing
-                        .domain_pelt_like_utilization_percent(selected_id)
-                        .ok()
-                        .flatten();
-                    if selected_load.is_some_and(|load| load / 100.0 >= threshold) {
-                        let domains = fineloadbalancing.system_domains.immutable_clone();
-                        let mut candidates = domains
-                            .iter()
-                            .filter(|domain| domain.schedgroup_id() != selected_id)
-                            .filter_map(|domain| {
-                                fineloadbalancing
-                                    .domain_pelt_like_utilization_percent(domain.schedgroup_id())
-                                    .ok()
-                                    .flatten()
-                                    .map(|load| (domain.schedgroup_id(), load))
-                            })
-                            .collect::<Vec<_>>();
-                        // Generic spillover checks only the base policy's selected domain;
-                        // it does not inspect all candidates (for example, Po2's other
-                        // home domain). It can therefore override policy affinity even
-                        // when that policy had another acceptable candidate.
-                        // TODO: Use cpu_workload_phase() and queued FQDN concentration
-                        // to predict burst phases before a selected domain saturates.
-                        let probes = config.burst_probes.max(1).min(candidates.len());
-                        let mut rng = rand::rng();
-                        for index in 0..probes {
-                            let swap_index = rng.random_range(index..candidates.len());
-                            candidates.swap(index, swap_index);
-                        }
-                        let alternate = candidates[..probes]
-                            .iter()
-                            .min_by(|left, right| left.1.total_cmp(&right.1))
-                            .map(|candidate| candidate.0);
-                        if let Some(alternate_id) = alternate {
-                            if lbpolicy.move_reservation(&reg, selected_id, alternate_id) {
-                                debug!(tid=%tid, fqdn=%fqdn, selected_domain=%selected_id,
-                                    selected_pelt_utilization=?selected_load,
-                                    alternate_domain=%alternate_id, threshold,
-                                    "[finesched] generic burst spillover rerouted invocation");
-                                domain_id = Some(alternate_id);
+            let domains = fineloadbalancing.system_domains.immutable_clone();
+            let mut domain_id = None;
+            if let Some(pref_id) = preferred_domain {
+                if let Some(domain) = domains.get(pref_id as usize) {
+                    domain.acquire_cores_oc(reg.cpus);
+                    domain_id = Some(pref_id);
+                }
+            }
+            if domain_id.is_none() {
+                domain_id = lbpolicy.assign_domain_to_function_request(tid, reg.clone());
+                if let Some(selected_id) = domain_id {
+                    let config = &fineloadbalancing.config;
+                    let threshold = config.burst_threshold;
+                    if config.burst_mode == crate::worker_api::worker_config::FineSchedBurstMode::Spillover
+                        && threshold.is_finite()
+                        && (0.0..=1.0).contains(&threshold)
+                    {
+                        let selected_load = fineloadbalancing
+                            .domain_pelt_like_utilization_percent(selected_id)
+                            .ok()
+                            .flatten();
+                        if selected_load.is_some_and(|load| load / 100.0 >= threshold) {
+                            let mut candidates = domains
+                                .iter()
+                                .filter(|domain| domain.schedgroup_id() != selected_id)
+                                .filter_map(|domain| {
+                                    fineloadbalancing
+                                        .domain_pelt_like_utilization_percent(domain.schedgroup_id())
+                                        .ok()
+                                        .flatten()
+                                        .map(|load| (domain.schedgroup_id(), load))
+                                })
+                                .collect::<Vec<_>>();
+                            // Generic spillover checks only the base policy's selected domain;
+                            // it does not inspect all candidates (for example, Po2's other
+                            // home domain). It can therefore override policy affinity even
+                            // when that policy had another acceptable candidate.
+                            // TODO: Use cpu_workload_phase() and queued FQDN concentration
+                            // to predict burst phases before a selected domain saturates.
+                            let probes = config.burst_probes.max(1).min(candidates.len());
+                            let mut rng = rand::rng();
+                            for index in 0..probes {
+                                let swap_index = rng.random_range(index..candidates.len());
+                                candidates.swap(index, swap_index);
+                            }
+                            let alternate = candidates[..probes]
+                                .iter()
+                                .min_by(|left, right| left.1.total_cmp(&right.1))
+                                .map(|candidate| candidate.0);
+                            if let Some(alternate_id) = alternate {
+                                if lbpolicy.move_reservation(&reg, selected_id, alternate_id) {
+                                    debug!(tid=%tid, fqdn=%fqdn, selected_domain=%selected_id,
+                                        selected_pelt_utilization=?selected_load,
+                                        alternate_domain=%alternate_id, threshold,
+                                        "[finesched] generic burst spillover rerouted invocation");
+                                    domain_id = Some(alternate_id);
+                                }
                             }
                         }
                     }

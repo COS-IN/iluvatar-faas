@@ -368,4 +368,56 @@ mod fineloadbalancing_guardrails_tests {
 
         test_domains(lbpolicy, durs, expected_domains).await;
     }
+
+    #[iluvatar_library::sim_test]
+    async fn acquire_cores_with_preferred_honors_some_domain_over_po2() {
+        use iluvatar_worker_library::services::resources::cpu::{build_load_avg_signal, CpuResourceTracker};
+        use iluvatar_worker_library::worker_api::worker_config::CPUResourceConfig;
+
+        let (_log, _cfg, _cm, _invoker, reg, cmap, _gpu) = build_test_services(None, None, None).await;
+        let mut flb_config = FineLoadBalancingConfig::default();
+        flb_config.dispatchpolicy = "power_of_two".to_string();
+        flb_config.testing = 1;
+        flb_config.preallocated_groups.groups = (0..4)
+            .map(|core| SchedGroup {
+                cores: vec![core],
+                ..Default::default()
+            })
+            .collect();
+        let cpu_config = Arc::new(CPUResourceConfig {
+            count: 4,
+            ..Default::default()
+        });
+        let tracker = CpuResourceTracker::new(
+            &cpu_config,
+            build_load_avg_signal(),
+            &TEST_TID,
+            cmap,
+            Some(Arc::new(flb_config)),
+        )
+        .unwrap();
+        let func_reg = reg.register(cpu_reg(), &TEST_TID).await.unwrap();
+        let flb = tracker.fineloadbalancing().unwrap();
+
+        // Repeatedly pass preferred_domain = Some(3): must always land on domain 3, never Po2 random.
+        for idx in 0..8 {
+            let tid = format!("pref-tid-{idx}");
+            let permit = tracker
+                .acquire_cores_with_preferred(&func_reg, &tid, Some(3))
+                .await
+                .unwrap();
+            assert!(permit.is_some());
+            assert_eq!(flb.stats.tid_map.get(&tid).map(|v| *v), Some(3));
+            drop(permit);
+        }
+
+        // When preferred_domain is None, falls back to power_of_two and records a valid domain.
+        let permit = tracker
+            .acquire_cores_with_preferred(&func_reg, &"fallback-tid".to_string(), None)
+            .await
+            .unwrap();
+        assert!(permit.is_some());
+        let assigned = flb.stats.tid_map.get(&"fallback-tid".to_string()).map(|v| *v);
+        assert!(matches!(assigned, Some(0..=3)));
+    }
 }

@@ -37,7 +37,12 @@ u32 last_online_cpu_config = 0;
 CpuTopology_t cpu_topology[MAX_CPUS] = {};
 u32 enqueue_config = SCHED_CONFIG_PRIO_DSQ;
 u64 domains_count = 0;
+// Task-clock floor (tctx->vtime, TAI-ns based). Only used by the global DSQ.
 u64 last_max_vtime = 0;
+// Per-domain container virtual clock (cgroup_vtime_context.vtime, accumulated
+// core-ns starting at 0). Kept separate from last_max_vtime so container EEVDF
+// lag clamping is never compared against TAI wall-clock timestamps.
+u64 dom_vtime_floor[MAX_GROUPS] = {};
 
 struct GlobalStats {
     u64 task_count;
@@ -271,6 +276,7 @@ struct task_context *try_lookup_task_ctx(const struct task_struct *p) {
     if (!context) {
         struct task_context default_context;
         memset(&default_context, 0, sizeof(default_context));
+        default_context.busypolling_factor = 1;
 
         err = bpf_map_update_elem(&task_ctx_stor, &pid, &default_context, BPF_NOEXIST);
         if (err < 0) {

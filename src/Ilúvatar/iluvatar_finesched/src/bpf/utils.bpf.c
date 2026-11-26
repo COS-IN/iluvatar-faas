@@ -682,7 +682,8 @@ static __noinline void task_stats_stop_running(struct task_struct *p) {
 
             // prioritize tasks that consume less cpu time
             // and sleep often
-            tctx->vtime += (cpu_time*tctx->busypolling_factor) / sleep_freq_avg;
+            u64 busypolling_factor = tctx->busypolling_factor ? tctx->busypolling_factor : 1;
+            tctx->vtime += (cpu_time * busypolling_factor) / sleep_freq_avg;
 
             // prioritize tasks of shorter functions 
             // u64 func_exec_time = task_cgroup_exec_time( p );
@@ -708,6 +709,8 @@ static __noinline void task_stats_stop_running(struct task_struct *p) {
         if (enable_task_ip_monitoring) {
             u64 ip_variance = task_stats_task_ip_variance(p);
             tctx->busypolling_factor = ip_variance > BUSYPOLLING_IP_VARIANCE_THRESHOLD ? 1 : 3;
+        } else if (tctx->busypolling_factor == 0) {
+            tctx->busypolling_factor = 1;
         }
     }
 }
@@ -769,6 +772,7 @@ static __noinline void task_stats_task_init(struct task_struct *p) {
     // and sleep frequently are prioritized
     // it preserves fairness and prioritizes short tasks
     tctx->vtime = bpf_ktime_get_tai_ns();
+    tctx->busypolling_factor = 1;
 
     char *name = get_schedcgroup_name(p);
     if (!name) {
@@ -1761,11 +1765,19 @@ static __always_inline u32 compute_bounded_weight(u64 remaining_wall_ns, u32 ema
 
 static __always_inline bool container_enqueue_vtime(struct task_struct *p,
                                                      struct task_context *tctx,
+                                                     u32 dom_idx,
                                                      u64 *vtime, u64 *timeslice) {
+    if (dom_idx >= MAX_GROUPS) {
+        return false;
+    }
     struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, false);
     if (!ctx || !tctx || !vtime || !timeslice) {
         return false;
     }
+
+    // Per-domain container clock: same units (accumulated core-ns) as ctx->vtime.
+    u64 floor = dom_vtime_floor[dom_idx];
+    u64 min_vtime = floor > MAX_LAG_NS ? floor - MAX_LAG_NS : 0;
 
     u64 now = bpf_ktime_get_ns();
     bpf_spin_lock(&ctx->lock);
@@ -1775,14 +1787,23 @@ static __always_inline bool container_enqueue_vtime(struct task_struct *p,
     u32 weight = compute_bounded_weight(remaining, par_q8);
     u64 cap_wall_ns = SLICE_CAP_NS * 256 / par_q8;
     u64 request_ns = remaining > cap_wall_ns ? SLICE_CAP_NS : remaining * par_q8 / 256;
-    u64 min_vtime = last_max_vtime > MAX_LAG_NS ? last_max_vtime - MAX_LAG_NS : 0;
-    *vtime = MAX(ctx->vtime, min_vtime);
+    // EEVDF lag clamp (place_entity): an idle/new container may lead the domain
+    // clock by at most MAX_LAG_NS. Persist the clamp so the container stays in
+    // the domain's clock and does not bank unbounded credit while sleeping.
+    u64 eligible = MAX(ctx->vtime, min_vtime);
+    ctx->vtime = eligible;
     // EEVDF virtual deadline: v_d = v_e + r_i / w_f (100 is the base weight).
-    *vtime += request_ns * 100 / MAX(weight, 1U);
+    *vtime = eligible + request_ns * 100 / MAX(weight, 1U);
     *timeslice = (remaining && remaining <= SHORT_THRESH_NS && par_q8 <= 256)
                      ? SCX_SLICE_INF
                      : DEFAULT_SLICE_NS;
     bpf_spin_unlock(&ctx->lock);
+
+    // Advance the domain clock with the eligible time (not the deadline), so
+    // request/weight does not inflate the floor.
+    if (eligible > floor) {
+        dom_vtime_floor[dom_idx] = eligible;
+    }
     return true;
 }
 
@@ -1854,15 +1875,18 @@ static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
 
         u64 vtime = 0;
         u64 container_slice = timeslice;
-        if (container_enqueue_vtime(p, tctx, &vtime, &container_slice)) {
+        u32 dom_idx = (u32)cgrp_chrs->gid;
+        if (container_enqueue_vtime(p, tctx, dom_idx, &vtime, &container_slice)) {
             timeslice = container_slice;
         } else {
+            // Fallback clock (SRPT remaining-ns or task vtime). Do not feed it
+            // into last_max_vtime/dom_vtime_floor: different clock domain.
             vtime = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
         }
         emit_srpt_trace_event(false, p, bpf_get_smp_processor_id(),
                               cgrp_chrs, sched_chrs, tctx);
-        last_max_vtime = MAX(vtime, last_max_vtime);
-        timeslice = timeslice / tctx->busypolling_factor;
+        u64 busypolling_factor = tctx->busypolling_factor ? tctx->busypolling_factor : 1;
+        timeslice = timeslice / busypolling_factor;
 
         scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, vtime, 0);
         info("[task_stats][%s:%d] inserted to dsq(0x%x) vtime: %llu timeslice: %llu ", p->comm, p->pid, dsqid,
@@ -1904,10 +1928,16 @@ static __noinline bool enqueue_to_last_domain_queue(struct task_struct *p,
     dsqid = to_highpriority_queue ? DSQ_PRIO_Q_PER_DOM_START : DSQ_REG_Q_PER_DOM_START;
     dsqid = dsqid + domain_id;
 
-    info("[task_stats][%s:%d] insert to dsq(0x%x) tctx->vtime %llu ", p->comm, p->pid, dsqid,
-         tctx->vtime);
-    last_max_vtime = MAX(tctx->vtime, last_max_vtime);
-    scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, tctx->vtime, 0);
+    // This DSQ is shared with container tasks of the last domain, which are
+    // ordered on the per-domain container clock. Inserting with the TAI-based
+    // tctx->vtime (~1e18) would starve this task behind every container task;
+    // place it at the current domain clock instead.
+    u64 vtime = 0;
+    if (domain_id < MAX_GROUPS) {
+        vtime = dom_vtime_floor[domain_id];
+    }
+    info("[task_stats][%s:%d] insert to dsq(0x%x) vtime %llu ", p->comm, p->pid, dsqid, vtime);
+    scx_bpf_dsq_insert_vtime(p, dsqid, timeslice, vtime, 0);
     kick_cpus(&sched_chrs->corebitmask);
     return true;
 }

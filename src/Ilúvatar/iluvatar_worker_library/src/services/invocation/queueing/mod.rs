@@ -14,7 +14,7 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
     sync::Arc,
-    sync::atomic::AtomicBool,
+    sync::atomic::{AtomicBool, AtomicI32, Ordering as AtomicOrdering},
 };
 use time::OffsetDateTime;
 use tokio::sync::Notify;
@@ -159,6 +159,8 @@ pub struct EnqueuedInvocation {
     pub started: Mutex<bool>,
     /// Best-effort cold-start estimate made by the queue policy.
     pub likely_cold: AtomicBool,
+    /// Optional FineSched domain selected by a domain-aware queue policy (`-1` = unset).
+    pub preferred_domain: AtomicI32,
     /// The local time at which the item was inserted into the queue.
     pub queue_insert_time: OffsetDateTime,
     /// Estimated time (in seconds) from insertion that the function will have completed executing.
@@ -189,6 +191,7 @@ impl EnqueuedInvocation {
             signal: Notify::new(),
             started: Mutex::new(false),
             likely_cold: AtomicBool::new(false),
+            preferred_domain: AtomicI32::new(-1),
             #[cfg(feature = "full_spans")]
             span: tracing::Span::current(),
         }
@@ -225,6 +228,16 @@ impl EnqueuedInvocation {
     /// Reset the marker stating this as locked, so it can be attempted to run again
     pub fn unlock(&self) {
         *self.started.lock() = false;
+    }
+
+    pub fn set_preferred_domain(&self, domain: Option<iluvatar_finesched::SchedGroupID>) {
+        let raw = domain.unwrap_or(-1);
+        self.preferred_domain.store(raw, AtomicOrdering::Relaxed);
+    }
+
+    pub fn preferred_domain(&self) -> Option<iluvatar_finesched::SchedGroupID> {
+        let raw = self.preferred_domain.load(AtomicOrdering::Relaxed);
+        (raw >= 0).then_some(raw)
     }
 
     pub fn mark_successful(

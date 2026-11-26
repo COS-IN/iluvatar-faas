@@ -217,6 +217,118 @@ invocations; coefficients and R² are written to
 `latency_utilization_models.csv`. The heatmap averages samples into five-second
 bins by default; empty cells indicate no sample in that bin.
 
+`analyze_congestion_prices.py` joins CongestionPricing's per-candidate price
+decision events and invocation timing events to the load-generator output by
+exact `tid`. It writes selected-price invocation rows, all candidate-domain
+rows, per-function summaries, Pearson/Spearman correlations, five-second
+time-series bins, a Markdown report, and per-function time-series plots when
+Matplotlib is installed. Latencies include function execution, worker call,
+client E2E, worker-service E2E, dispatcher queue, and the four logged worker
+timing components. Missing events remain blank.
+
+When Matplotlib is available it also writes
+`pelt_marginal_price_by_domain.png`, a four-panel time-series line plot of
+selected-domain PELT-like utilization and the selected candidate's
+`total_marginal_toll` on separate y-axes. It uses exact invocation-ID and
+domain matches between price and assigned-domain sample events; each panel
+shows its matched count and Spearman correlation. The toll axis uses a
+symmetric log scale so large cold-start tolls/credits do not flatten the
+near-zero warm tolls. Sparse or absent samples are shown as such rather than
+filled from another domain or time.
+
+It also writes `unit_congestion_price_vs_pelt.png` from **all** evaluated
+candidate domains, including candidates that were not selected. In
+`price_candidates.csv`, the analyzer adds `domain_id` (from
+`candidate_domain`), `is_selected` (from `selected`), `queue_toll` (from
+`queue_backlog_toll`), `runtime_est_ms`, candidate-domain PELT fields, and
+`unit_congestion_price`:
+
+```text
+unit_congestion_price = (warm_toll + queue_toll) / runtime_est_ms
+```
+
+Cold tolls and creation credits are excluded. Rows with nonpositive/missing
+runtime or without matching PELT telemetry have no unit-price value. Candidate
+events do not log per-domain PELT directly, so telemetry is nearest-joined by
+domain and event time within 50 ms (the equivalent of a nearest-direction
+`merge_asof` with a 50,000,000 ns tolerance). The utilization x-value is the
+logged `domain_pelt_like_utilization_percent / 100`. Runnable load comes from
+the sampled `runnable_load` field and is normalized by configured cores per
+domain, allowing values above 1 when runnable work exceeds domain capacity.
+
+The plot has utilization and normalized-runnable-load panels. Selected
+candidates are highlighted; rejected candidate evaluations are faint. Both
+panels include a 24-bin median curve and 25th–75th percentile band, Spearman
+correlation and matched candidate count, plus the saved run's `rho_knee`
+reference. The y-axis stays linear for a narrow positive range and switches to
+symlog when the positive unit-price range exceeds two orders of magnitude.
+
+The selected invocation CSV also includes normalized and scheduling context:
+
+- `runtime_est_ms` uses the decision event's `estimated_runtime_ms`; when an
+  older event lacks it, the analyzer looks up `warm_dur_ms` in the trace
+  metadata CSV copied into the run directory (or a file passed with
+  `--metadata`). Missing estimates stay blank.
+- `priority_weight = benefit / runtime_est_ms`,
+  `exec_stretch = exec_ms / runtime_est_ms`, and
+  `norm_queue_wait = pricing_queue_ms / runtime_est_ms`.
+- `dispatch_overhead_ms = worker_e2e_ms - pricing_queue_ms - exec_ms`. This is
+  the residual after subtracting user-space admission queue and function
+  execution; it can still include container acquisition and other worker-side
+  time, so it is a dispatch/wakeup proxy rather than an isolated SCX timer.
+- `domain_rho_spread` is the max-minus-min `rho` across all candidate-domain
+  events for the same invocation. `warm_affinity_gap` is selected `rho` minus
+  the minimum candidate `rho` for `WarmIdle` decisions; it is blank for other
+  wave states.
+- `domain_queue_weight` uses an explicitly logged domain queue weight if
+  present. For older price events it is reconstructed from
+  `queue_backlog_toll / (min(estimated_runtime_ms, r_min_ms) *
+  delta_sigma_warm)` when that denominator is positive. This is the capped
+  effective queue weight used by the toll formula; it cannot be recovered
+  from a zero marginal-stretch coefficient, so those rows remain blank. The
+  source is recorded in `domain_queue_weight_source`.
+- `selected_pelt_util`, `selected_pelt_runnable`, and
+  `pelt_runnable_gap` are joined by exact `tid` from
+  `[finesched][core-metrics] sampled assigned domain` events. The logged
+  `domain_pelt_like_utilization_percent` is converted to a 0–1 fraction to
+  align with normalized `rho`; `runnable_load` is retained in its logged
+  units, and the gap is runnable load minus normalized utilization. These
+  fields are sampled, so missing exact-tid samples remain blank. A sample is
+  retained only when its domain matches the selected domain.
+- `cold_init_ms` and concurrent-boot metrics come from matching worker events
+  `Trying to cold start a new container` and `Container cold start completed`.
+  The analyzer pairs events by `tid`, then uses an O(N log N) sweep over
+  half-open boot intervals to count overlapping host and selected-domain boots
+  at each cold boot start or other invocation's price/dispatch timestamp.
+  Missing or unmatched lifecycle events are not treated as zero-duration
+  boots.
+
+The Markdown report adds three summary tables. **Table A** reports within-class
+priority-vs-queue and domain-queue-weight-vs-queue Spearman correlations,
+normalized queue wait, and p95 dispatch overhead. It uses priced calls, which
+excludes unpriced fast-path hello calls, and displays the pair count for the
+domain queue-weight correlation because older logs may not identify that
+weight. **Table B** groups matched cold boots by concurrent host boot count
+(1/2/3/4/5+) and reports cold-init percentiles, stretch relative to the
+single-boot median, and sampled assigned-domain runnable/gap means. **Table C**
+reports selected normalized `rho` alignment with assigned-domain PELT-like
+utilization and execution stretch, by selected domain and overall, plus
+candidate-rho spread and WarmIdle affinity-gap percentiles. Each correlation
+uses pairwise complete observations; `n` columns make sparse PELT/lifecycle
+coverage explicit. Empty values render as `n/a` in Markdown and blank CSV
+cells, never as numeric zero. Correlations are descriptive, not causal; PELT
+samples are assignment-time samples and may be sparse relative to decisions.
+
+```bash
+python3 scripts/analysis/analyze_congestion_prices.py /path/to/result
+```
+
+By default, outputs go to a sibling `<result-name>-congestion-price-analysis`
+directory. Use `--output-dir`, `--worker-log`, `--invocations`, or `--metadata`
+to override paths, and `--bin-seconds` to change the time-series bin width. The price is
+measured at admission and latency later in the request, so correlations are
+descriptive and may reflect function class, cold status, or workload phase.
+
 ```bash
 python3 scripts/analysis/analyze_domain_metrics.py \
   /path/to/result/worker1.log
