@@ -869,14 +869,9 @@ impl CongestionPricingCoordinator {
 
     fn read_rho(&self, domain_id: SchedGroupID, state: &CoordinatorState) -> f64 {
         if let Some(flb) = self.fineloadbalancing.upgrade() {
-            let mut rho = 0.0_f64;
-            if let Some(domain) = flb.system_domains.immutable_clone().get(domain_id as usize) {
-                let cap = domain.assigned_cores.max(1) as f64;
-                rho = rho.max((domain.used_cores() as f64) / cap);
-            }
+            // TODO: incorporate in-flight core reservations cleanly without distorting PELT utilization.
             if let Ok(Some(pelt_pct)) = flb.domain_pelt_like_utilization_percent(domain_id) {
                 let pelt_ratio = (pelt_pct / 100.0).max(0.0);
-                rho = rho.max(pelt_ratio);
                 if pelt_pct >= 99.0 {
                     if let Some(reader) = flb.core_metrics_reader.as_ref() {
                         if let Some(group) = flb.preallocated_domains.get_schedgroup(domain_id) {
@@ -888,13 +883,13 @@ impl CongestionPricingCoordinator {
                                 }
                             }
                             if dsq_sum > 0 {
-                                rho = rho.max(1.0 + (dsq_sum as f64) / (self.cores_per_domain as f64));
+                                return 1.0 + (dsq_sum as f64) / (self.cores_per_domain as f64);
                             }
                         }
                     }
                 }
+                return pelt_ratio;
             }
-            return rho;
         }
         if let Some(dom) = state.domains.get(domain_id as usize) {
             (dom.active_weight_sum / (self.cores_per_domain as f64)).max(0.0)
