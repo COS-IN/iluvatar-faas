@@ -30,6 +30,10 @@ pub struct PreallocGroupsConfig {
     pub domain_count: usize,
     /// Timeslice applied to generated domains, in milliseconds.
     pub timeslice_ms: u64,
+    /// Default FIFO mode (`0` = prio queue, `1` = FIFO) for generated domains.
+    pub fifo: u32,
+    /// Default enqueue priority (`"arrival"`, `"srpt"`, etc.) for generated domains.
+    pub prio: String,
     pub groups: Vec<SchedGroup>,
 }
 
@@ -38,6 +42,8 @@ impl Default for PreallocGroupsConfig {
         Self {
             domain_count: 4,
             timeslice_ms: 5,
+            fifo: 0,
+            prio: "arrival".to_string(),
             groups: Vec::new(),
         }
     }
@@ -80,6 +86,8 @@ impl PreallocGroupsConfig {
         Ok(Self {
             domain_count: groups.len(),
             timeslice_ms: self.timeslice_ms,
+            fifo: self.fifo,
+            prio: self.prio.clone(),
             groups,
         })
     }
@@ -134,16 +142,20 @@ impl PreallocGroupsConfig {
         }
 
         let template = self.groups.first();
-        let default_prio = "arrival".to_string();
+        let fallback_prio = if self.prio.is_empty() {
+            "arrival".to_string()
+        } else {
+            self.prio.clone()
+        };
         let mut groups: Vec<SchedGroup> = (0..domain_count)
             .map(|_| SchedGroup {
                 cores: Vec::new(),
                 ts: self.timeslice_ms,
-                fifo: template.map_or(0, |group| group.fifo),
+                fifo: template.map_or(self.fifo, |group| group.fifo),
                 prio: template
                     .map(|group| group.prio.clone())
                     .filter(|prio| !prio.is_empty())
-                    .unwrap_or_else(|| default_prio.clone()),
+                    .unwrap_or_else(|| fallback_prio.clone()),
             })
             .collect();
 
@@ -161,6 +173,8 @@ impl PreallocGroupsConfig {
         Ok(Self {
             domain_count,
             timeslice_ms: self.timeslice_ms,
+            fifo: self.fifo,
+            prio: fallback_prio,
             groups,
         })
     }

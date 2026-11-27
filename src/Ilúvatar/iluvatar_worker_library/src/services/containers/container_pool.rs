@@ -103,17 +103,36 @@ impl ContainerPool {
     /// Returns a random (idle) container for the fqdn, or [None] if none is available
     /// Moves that container to the idle pool
     pub fn activate_random_container(&self, fqdn: &str, tid: &TransactionId) -> Option<Container> {
-        match self.idle_pool.get_mut(fqdn) {
-            Some(mut pool_list) => match (*pool_list).pop() {
-                Some(c) => {
-                    debug!(tid=tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing random container from pool");
-                    self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
-                    Some(c)
-                },
-                None => None,
-            },
-            None => None,
+        self.activate_container_for_domain(fqdn, None, tid)
+    }
+
+    /// Activate an idle container for `fqdn`, preferring one whose `last_domain` matches
+    /// `preferred_domain`, then an unplaced prewarm container (`last_domain == None`),
+    /// and finally any other idle container.
+    pub fn activate_container_for_domain(
+        &self,
+        fqdn: &str,
+        preferred_domain: Option<usize>,
+        tid: &TransactionId,
+    ) -> Option<Container> {
+        let mut pool_list = self.idle_pool.get_mut(fqdn)?;
+        if pool_list.is_empty() {
+            return None;
         }
+        let chosen_idx = if let Some(dom) = preferred_domain {
+            pool_list
+                .iter()
+                .rposition(|c| c.last_domain() == Some(dom))
+                .or_else(|| pool_list.iter().rposition(|c| c.last_domain().is_none()))
+                .unwrap_or(pool_list.len() - 1)
+        } else {
+            pool_list.len() - 1
+        };
+        let c = pool_list.swap_remove(chosen_idx);
+        debug!(tid=tid, container_id=%c.container_id(), name=%self.pool_name, pool_type=?PoolType::Idle, "Removing container from idle pool");
+        drop(pool_list);
+        self.add_container(c.clone(), &self.running_pool, tid, PoolType::Running);
+        Some(c)
     }
 
     /// Move the container from the running pool to idle

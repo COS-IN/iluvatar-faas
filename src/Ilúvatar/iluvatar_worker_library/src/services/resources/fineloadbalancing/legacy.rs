@@ -269,6 +269,7 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                 "power_of_two_det" => Some(Box::new(super::PowerOfTwo::new_deterministic(
                     fineloadbalancing_weak.clone(),
                 ))),
+                "least_loaded" => Some(Box::new(super::LeastLoaded::new(fineloadbalancing_weak.clone()))),
                 "hash" => Some(Box::new(super::Hash::new(fineloadbalancing_weak.clone()))),
                 "power_of_two_peek" => Some(Box::new(super::PowerOfTwoPeek::new(fineloadbalancing_weak.clone()))),
                 "power_of_two_peek_det" => Some(Box::new(super::PowerOfTwoPeek::new_deterministic(
@@ -298,7 +299,9 @@ impl BuildFineLoadBalancing for FineLoadBalancing {
                     system_domains.clone(),
                 ))),
 
-                "domain_zero" => Some(Box::new(DomainZero::new(fineloadbalancing_weak.clone()))),
+                "domain_zero" | "posted_price" | "congestion_pricing" => {
+                    Some(Box::new(DomainZero::new(fineloadbalancing_weak.clone())))
+                },
                 _ => None,
             };
             let lbpolicy = lbpolicy.unwrap();
@@ -487,6 +490,20 @@ impl FineLoadBalancingStruct {
             total += reader.pelt_like_utilization_percent(*cpu)?;
         }
         Ok(Some(total / group.cores.len() as f64))
+    }
+
+    /// Sum FineSched runnable load across all logical CPUs in a domain.
+    pub fn domain_runnable_load(&self, domain_id: SchedGroupID) -> Option<f64> {
+        let reader = self.core_metrics_reader.as_ref()?;
+        let group = self.preallocated_domains.get_schedgroup(domain_id)?;
+        if group.cores.is_empty() {
+            return None;
+        }
+        let mut total = 0u64;
+        for cpu in &group.cores {
+            total = total.saturating_add(reader.runnable_load(*cpu).ok()?);
+        }
+        Some(total as f64)
     }
 
     /// Snapshot FineSched PELT-like utilization for each configured domain.
@@ -935,6 +952,17 @@ impl DomainStruct {
         self.mut_data.lock().unwrap().used_cores
     }
 
+    /// Atomically acquire `requested_cores` on this domain only if `used_cores + requested_cores <= assigned_cores`.
+    pub fn try_acquire_cores(&self, requested_cores: u32) -> bool {
+        let mut data = self.mut_data.lock().unwrap();
+        if data.used_cores.saturating_add(requested_cores) <= self.assigned_cores {
+            data.used_cores += requested_cores;
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn assigned_funcs(&self) -> Vec<String> {
         self.mut_data.lock().unwrap().assigned_to_funcs.clone()
     }
@@ -983,7 +1011,7 @@ impl DomainStruct {
     pub fn return_cpus_and_release(&self, cpus: u32) {
         let mut d = self.mut_data.lock().unwrap();
 
-        d.used_cores -= cpus;
+        d.used_cores = d.used_cores.saturating_sub(cpus);
         debug!( tag=%"cpu_release_issue", lbpolicy=%"consistent_hashing", domain_id=%self.id, used_cores=%d.used_cores, "[finesched] domain released");
         if d.used_cores == 0 {
             d.assigned_to_funcs.clear();

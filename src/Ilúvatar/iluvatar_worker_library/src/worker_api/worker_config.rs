@@ -394,13 +394,54 @@ pub struct InvocationConfig {
     pub mqfq_config: Option<Arc<MqfqConfig>>,
     pub landlord_config: Option<Arc<LandlordConfig>>,
     pub greedy_weight_config: Option<Arc<GreedyWeightConfig>>,
-    /// Optional congestion-pricing admission-control configuration.
+    /// Optional posted-price (SMC) admission and placement configuration.
     #[serde(default)]
-    pub congestion_pricing: Option<Arc<CongestionPricingConfig>>,
+    pub posted_price: Option<Arc<PostedPriceConfig>>,
+    /// Compatibility alias for `posted_price`.
+    #[serde(default)]
+    pub congestion_pricing: Option<Arc<PostedPriceConfig>>,
 }
 impl InvocationConfig {
     pub fn log_details(&self) -> bool {
         self.enqueuing_log_details.unwrap_or(false)
+    }
+
+    pub fn posted_price_config(&self) -> Option<&PostedPriceConfig> {
+        self.posted_price.as_deref().or(self.congestion_pricing.as_deref())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CpuQueuePolicy {
+    None,
+    Fcfs,
+    #[serde(rename = "minheap")]
+    MinHeap,
+    MinheapEd,
+    MinheapIat,
+    #[serde(rename = "cold_pri")]
+    ColdPriority,
+    Scaling,
+    #[serde(rename = "posted_price", alias = "congestion_pricing")]
+    PostedPrice,
+}
+
+impl std::str::FromStr for CpuQueuePolicy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "none" => Ok(Self::None),
+            "fcfs" => Ok(Self::Fcfs),
+            "minheap" => Ok(Self::MinHeap),
+            "minheap_ed" => Ok(Self::MinheapEd),
+            "minheap_iat" => Ok(Self::MinheapIat),
+            "cold_pri" => Ok(Self::ColdPriority),
+            "scaling" => Ok(Self::Scaling),
+            "posted_price" | "congestion_pricing" => Ok(Self::PostedPrice),
+            unknown => anyhow::bail!("Unknown CPU queueing policy '{}'", unknown),
+        }
     }
 }
 
@@ -439,32 +480,76 @@ pub struct HttpServerConfig {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct CongestionPricingCalibration {
-    /// Initial warm-stretch slope θ_warm (default 1.0, clamped to [0.25, 3.0]).
     pub theta_warm: Option<f64>,
-    /// Initial cold-boot slope θ_cold (default 1.5, clamped to [0.5, 5.0]).
     pub theta_cold: Option<f64>,
-    /// Home-domain cache-affinity bonus φ_aff (default 0.05).
     pub phi_aff: Option<f64>,
-    /// If true, EWMA calibration updates are disabled (useful for A/B tests).
     pub freeze_calibration: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadEstimatorKind {
+    #[default]
+    #[serde(rename = "unit", alias = "l0")]
+    Unit,
+    #[serde(rename = "util_weighted", alias = "l1")]
+    UtilWeighted,
+    #[serde(rename = "pelt_observer", alias = "l2")]
+    PeltObserver,
+}
+
+impl LoadEstimatorKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Unit => "unit",
+            Self::UtilWeighted => "util_weighted",
+            Self::PeltObserver => "pelt_observer",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct CongestionPricingConfig {
-    /// Power β in the welfare weight w_i = S_i^{-β} (default 1.0).
+#[serde(default)]
+pub struct PostedPriceConfig {
+    /// Power β in the welfare weight w_0 = s_i^{-β} (default 0.5).
     pub welfare_beta: Option<f64>,
-    /// Normalized load where warm-task stretch begins (default 1.05).
-    pub rho_knee: Option<f64>,
-    /// Coalesce followers onto an in-flight cold-start wave (default true).
-    pub cold_wave_coalescing: Option<bool>,
-    /// Physical cores per FineSched domain. Auto-detected from fineloadbalancing config if None.
+    /// Logical cores per FineSched domain. Auto-detected from fineloadbalancing config if None.
     pub cores_per_domain: Option<u32>,
-    /// Maximum queued invocations per domain before admission is refused (default 4096).
-    pub max_queue_per_domain: Option<usize>,
-    /// Optional seed calibration; None means use zero-config defaults.
+    /// Maximum total queued invocations before admission is refused (default 16384).
+    #[serde(alias = "max_queue_per_domain")]
+    pub max_queue_len: Option<usize>,
+    /// Warm cross-domain cache migration cost C_mig in ms (default 2.5 ms).
+    pub c_mig_ms: Option<f64>,
+    /// Starvation deadband in seconds before queue aging activates (default 1.5 s).
+    /// When `wait_s <= aging_grace_sec`, `w_eff == w_0` identically.
+    pub aging_grace_sec: Option<f64>,
+    /// Multiplicative queue aging slope per second beyond `aging_grace_sec` (default 1.0 /s):
+    /// `w_eff = w_0 * (1.0 + aging_alpha * (wait_s - aging_grace_sec).max(0.0))`.
+    #[serde(alias = "aging_rate_per_sec")]
+    pub aging_alpha: Option<f64>,
+    /// Stage A domain load estimator: `"unit"` (L0, default), `"util_weighted"` (L1), or `"pelt_observer"` (L2).
+    pub load_estimator: Option<LoadEstimatorKind>,
+    /// Core footprint assigned to an active cold boot in L1/L2 (default 1.0).
+    pub u_boot: Option<f64>,
+    /// EWMA smoothing factor for per-function CPU core utilization `u_hat[fqdn]` in L1/L2 (default 0.2).
+    pub util_ewma_alpha: Option<f64>,
+    /// Contention threshold (`domain_rho` and `pelt_util`) below which downward `u_hat` EWMA updates are applied (default 0.65).
+    pub util_low_contention_rho: Option<f64>,
+    /// Kernel PELT half-life in ms used by L2 observer predict step (default 32.0 ms).
+    pub pelt_half_life_ms: Option<f64>,
+    /// L2 observer proportional gain on predicted PELT `p_hat` (default 0.5).
+    pub observer_kp: Option<f64>,
+    /// L2 observer integral/bias gain on residual load bias `b_hat` (default 0.2).
+    pub observer_kb: Option<f64>,
+    /// Symmetric clamp (in core-units) on `b_hat` in L2 observer (default `0.5 * cores_per_domain`).
+    pub observer_bias_clamp_cores: Option<f64>,
+    /// Optional legacy calibration block retained for config compatibility.
     pub pricing_calibration: Option<CongestionPricingCalibration>,
 }
+
+pub type CongestionPricingConfig = PostedPriceConfig;
 
 pub const WORKER_ENV_PREFIX: &str = "ILUVATAR_WORKER";
 /// A wrapper type for the loaded global worker configuration

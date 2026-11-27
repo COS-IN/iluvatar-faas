@@ -233,6 +233,20 @@ impl ContainerManager {
         (idle_warm, idle_prewarm, total)
     }
 
+    /// App-level domains (`container.last_domain()`) of currently idle warm CPU containers.
+    pub fn idle_cpu_warm_domains(&self, fqdn: &str) -> Vec<usize> {
+        let mut domains: Vec<usize> = self
+            .cpu_containers
+            .iter_idle_fqdn(fqdn)
+            .into_iter()
+            .filter(|container| matches!(container.state(), ContainerState::Warm | ContainerState::Prewarm))
+            .filter_map(|container| container.last_domain())
+            .collect();
+        domains.sort_unstable();
+        domains.dedup();
+        domains
+    }
+
     /// Scheduler domains last associated with currently idle warm CPU containers.
     /// Containers without a recorded cgroup placement are omitted.
     pub fn idle_cpu_warm_cgroups(&self, fqdn: &str) -> Vec<String> {
@@ -333,16 +347,25 @@ impl ContainerManager {
         tid: &'a TransactionId,
         compute: Compute,
     ) -> EventualItem<impl Future<Output = Result<ContainerLock>> + 'a> {
-        let cont = self.try_acquire_container(&reg.fqdn, tid, compute);
-        let cont = match cont {
+        self.acquire_container_for_domain(reg, tid, compute, None)
+    }
+
+    pub fn acquire_container_for_domain<'a>(
+        self: &'a Arc<Self>,
+        reg: &'a Arc<RegisteredFunction>,
+        tid: &'a TransactionId,
+        compute: Compute,
+        preferred_domain: Option<usize>,
+    ) -> EventualItem<impl Future<Output = Result<ContainerLock>> + 'a> {
+        let cont = self.try_acquire_container(&reg.fqdn, tid, compute, preferred_domain);
+        match cont {
             Some(l) => EventualItem::Now(Ok(l)),
             None => {
                 // no available container, cold start
                 let r = reg.clone();
                 EventualItem::Future(self.cold_start(r, tid, compute))
             },
-        };
-        cont
+        }
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, fqdn), fields(tid=tid)))]
@@ -352,9 +375,10 @@ impl ContainerManager {
         fqdn: &str,
         tid: &TransactionId,
         compute: Compute,
+        preferred_domain: Option<usize>,
     ) -> Option<ContainerLock> {
         if let Ok(pool) = self.get_resource_pool(compute) {
-            return self.acquire_container_from_pool(pool, fqdn, tid);
+            return self.acquire_container_from_pool(pool, fqdn, tid, preferred_domain);
         }
         None
     }
@@ -364,9 +388,10 @@ impl ContainerManager {
         pool: &ContainerPool,
         fqdn: &str,
         tid: &TransactionId,
+        preferred_domain: Option<usize>,
     ) -> Option<ContainerLock> {
         loop {
-            match pool.activate_random_container(fqdn, tid) {
+            match pool.activate_container_for_domain(fqdn, preferred_domain, tid) {
                 Some(c) => {
                     if c.is_healthy() {
                         return self.try_lock_container(c, tid);

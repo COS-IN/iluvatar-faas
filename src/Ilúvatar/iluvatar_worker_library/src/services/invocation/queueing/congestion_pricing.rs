@@ -1,313 +1,1150 @@
-//! Online Self-Calibrating Pigouvian Congestion Pricing admission control.
+//! Clean-room Late-Binding Social Marginal Cost (SMC) Posted-Price Coordinator (`posted_price`).
 //!
-//! Evaluates incoming CPU invocation requests against domain-level Pigouvian tolls
-//! derived from FineSched PELT domain telemetry and self-calibrating supply curves.
+//! Strictly separates CPU congestion pricing into three modular stages:
+//! - Stage A: Pluggable [`DomainLoadEstimator`] + [`UnitFootprintEstimator`]
+//! - Stage B: Pure narrow-waist unit pricer [`domain_cpu_price`]
+//! - Stage C: Unified SMC shopper ([`invocation_price`] & [`PostedPriceCoordinator::rank_domains_for_dispatch`])
 
 use super::{EnqueuedInvocation, InvokerCpuQueuePolicy};
 use crate::services::containers::containermanager::ContainerManager;
 use crate::services::containers::structs::ContainerState;
 use crate::services::resources::fineloadbalancing::FineLoadBalancingWeak;
-use crate::worker_api::worker_config::CongestionPricingConfig;
+use crate::worker_api::worker_config::{LoadEstimatorKind, PostedPriceConfig};
 use anyhow::Result;
 use iluvatar_finesched::SchedGroupID;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::transaction::TransactionId;
-use iluvatar_library::types::Compute;
 use ordered_float::OrderedFloat;
-use parking_lot::Mutex;
-use rand::Rng;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, VecDeque};
+use parking_lot::{Mutex, RwLock};
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Instant;
-use tracing::{debug, info, trace};
+use tracing::{debug, info};
 
-const DEFAULT_S_I: f64 = 10.0;       // ms
-const DEFAULT_T_BOOT: f64 = 250.0;   // ms
-const DEFAULT_ETA: f64 = 0.8;
+pub type DomainId = usize;
+
+/// Minimum floor for estimated warm service time `s_i` (ms) to keep `w_0 = s_i^(-beta)` finite.
+pub const MIN_S_I_MS: f64 = 0.05;
+/// Default warm service duration `s_i` (ms) before benchmark or runtime observations arrive.
+pub const DEFAULT_S_I_MS: f64 = 10.0;
+/// Default isolated cold boot duration `T_boot` (ms).
+pub const DEFAULT_T_BOOT_MS: f64 = 250.0;
+/// Fraction of baseline boot cost charged for cross-domain warm container migration (`0.01`).
+pub const MIGRATION_COST_BOOT_FRACTION: f64 = 0.01;
+/// Default warm cross-domain cache migration cost `C_mig` (`2.5 ms`).
+pub const DEFAULT_C_MIG_MS: f64 = DEFAULT_T_BOOT_MS * MIGRATION_COST_BOOT_FRACTION;
+/// Domain congestion stretch multiplier applied to `C_boot(d)` above isolated `T_boot`.
+pub const BOOT_CONGESTION_FACTOR: f64 = 0.10;
+/// Warm functions shorter than this threshold (ms) use the lightweight express-lane placement helper.
+pub const EXPRESS_LANE_MAX_S_I_MS: f64 = 2.0;
+
+const DEFAULT_BETA: f64 = 0.5;
 const DEFAULT_CORES_PER_DOMAIN: u32 = 4;
-const DEFAULT_MAX_QUEUE_PER_DOMAIN: usize = 4096;
-/// Maximum short-job lead window (ms) in virtual-deadline ordering so shorter
-/// jobs step ahead of concurrent arrivals without ever starving large jobs or
-/// bunching 24 identical large jobs into a cold-start stampede.
-const MAX_SCHEDULING_SLACK_MS: f64 = 300.0;
-/// Maximum consecutive warm express-lane pops while normal ready work is waiting.
-const MAX_EXPRESS_STREAK: u32 = 8;
-/// Scale-invariant soft-affinity utilization hysteresis margin.
-/// `C_mig = SOFT_AFFINITY_RHO_MARGIN * s_i`, so any function (tiny `hello` or large
-/// `pyaes`) stays on its warm domain while `rho_warm - rho_alt <= 0.20` (~1 core on a
-/// 6-core domain) and spills once an alternate domain is meaningfully quieter (>= 2 cores).
-const SOFT_AFFINITY_RHO_MARGIN: f64 = 0.20;
+const DEFAULT_MAX_QUEUE_LEN: usize = 16_384;
+const PELT_REFRESH_INTERVAL_NS: u64 = 2_000_000; // 2 ms
 
-fn scheduling_slack_ms(s_i: f64) -> f64 {
-    (0.5 * s_i.max(0.0)).min(MAX_SCHEDULING_SLACK_MS)
+/// Default starvation deadband (seconds) before queue aging activates (`w_eff == w_0` below this).
+pub const DEFAULT_AGING_GRACE_SEC: f64 = 1.5;
+/// Default multiplicative queue aging rate per second beyond `aging_grace_sec`.
+pub const DEFAULT_AGING_ALPHA: f64 = 1.0;
+
+/// Minimum per-function CPU footprint in core-units for L1/L2 estimators.
+pub const MIN_FOOTPRINT_CORES: f64 = 0.05;
+/// Default active cold-boot footprint in core-units for L1/L2 estimators.
+pub const DEFAULT_U_BOOT_CORES: f64 = 1.0;
+/// Default EWMA smoothing factor for `u_hat[fqdn]` under low/moderate contention.
+pub const DEFAULT_UTIL_EWMA_ALPHA: f64 = 0.2;
+/// Default contention ceiling (`domain_rho < 0.65 && pelt_util < 0.65`) for downward `u_hat` updates.
+pub const DEFAULT_UTIL_LOW_CONTENTION_RHO: f64 = 0.65;
+/// Default kernel PELT half-life (ms) modeled by the L2 observer.
+pub const DEFAULT_PELT_HALF_LIFE_MS: f64 = 32.0;
+/// Default L2 observer gain `k_p` on predicted PELT state `p_hat`.
+pub const DEFAULT_OBSERVER_KP: f64 = 0.5;
+/// Default L2 observer gain `k_b` on residual load bias `b_hat`.
+pub const DEFAULT_OBSERVER_KB: f64 = 0.2;
+/// Default maximum time step (ms) clamped in L2 `advance_time`.
+pub const MAX_OBSERVER_DT_MS: f64 = 500.0;
+
+/// Smooth linear slope of unit self-slowdown `sigma_d(rho)` from `rho = 0.0` (no dead zone).
+pub const SIGMA_LINEAR_SLOPE: f64 = 0.12;
+/// Superlinear quartic congestion coefficient of `sigma_d(rho)` (`sigma(1.0) = 1.0`).
+pub const SIGMA_SUPERLINEAR_COEFF: f64 = 0.88;
+
+// ============================================================================
+// Stage A: Pluggable DomainLoadEstimator Trait + L0 / L1 / L2 Estimators
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DomainLoadEstimate {
+    pub effective_rho: f64,
+    pub active_weight: f64,
 }
 
-fn soft_affinity_migration_cost(s_i: f64) -> f64 {
-    SOFT_AFFINITY_RHO_MARGIN * s_i.max(0.0)
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DomainEstimatorDiag {
+    /// Instantaneous footprint utilization `L_l1[d] / C_d` prior to L2 bias correction.
+    pub l1_rho: f64,
+    /// L2 observer residual load bias `b_hat[d]` in core-units (`0.0` on L0/L1).
+    pub bias_cores: f64,
+    /// L2 observer predicted PELT load `p_hat[d]` in core-units (`0.0` on L0/L1).
+    pub pred_pelt_cores: f64,
 }
 
-fn placement_ranking_cost(
-    rho_d: f64,
-    s_i: f64,
-    overload_toll: f64,
-    c_mig: f64,
-    is_warm_domain: bool,
-) -> f64 {
-    let migration_cost = if is_warm_domain { 0.0 } else { c_mig };
-    rho_d * s_i + overload_toll.max(0.0) + migration_cost
-}
-
-/// Build a Power-of-Two candidate pair `[primary, alt]` from `pool`, picking one
-/// alternate domain `alt != primary` using `random_offset`. Prevents synchronized
-/// herding across all domains while keeping `primary` (warm/home) in every comparison.
-fn select_po2_candidates(primary: usize, pool: &[usize], random_offset: usize) -> Vec<usize> {
-    let mut others: Vec<usize> = pool
-        .iter()
-        .copied()
-        .filter(|&d| d != primary)
-        .collect();
-    others.sort_unstable();
-    others.dedup();
-    if others.is_empty() {
-        return vec![primary];
+pub trait DomainLoadEstimator: Send + Sync {
+    /// Record an invocation dispatch on `domain` and return the exact `footprint_used` (in cores)
+    /// added to the domain's running load so `on_complete` subtracts the identical float.
+    fn on_dispatch(&mut self, domain: DomainId, fqdn: &str, weight: f64) -> f64;
+    /// Record completion on `domain`, subtracting the exact `footprint_used` returned by `on_dispatch`.
+    fn on_complete(&mut self, domain: DomainId, fqdn: &str, weight: f64, footprint_used: f64);
+    fn on_boot_start(&mut self, domain: DomainId, fqdn: &str);
+    fn on_boot_end(&mut self, domain: DomainId, fqdn: &str);
+    /// Record a cold-boot start paired with an already-dispatched invocation whose `pending_footprint`
+    /// has not yet entered the domain cgroup (`cgroup_assigned_to_function` runs post-boot).
+    fn on_boot_start_with_footprint(&mut self, domain: DomainId, fqdn: &str, _pending_footprint: f64) {
+        self.on_boot_start(domain, fqdn);
     }
-    let alt = others[random_offset % others.len()];
-    vec![primary, alt]
-}
-
-#[derive(Clone)]
-struct WaitEntry {
-    deadline_ms: OrderedFloat<f64>,
-    weight: f64,
-    seq: u64,
-    enqueue_ms: f64,
-    item: Arc<EnqueuedInvocation>,
-    is_cold: bool,
-    coalesced: bool,
-}
-
-impl PartialEq for WaitEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.deadline_ms == other.deadline_ms && self.seq == other.seq
+    /// Complete a cold boot paired with `pending_footprint`, transitioning it into cgroup execution.
+    fn on_boot_end_with_footprint(&mut self, domain: DomainId, fqdn: &str, _pending_footprint: f64) {
+        self.on_boot_end(domain, fqdn);
     }
-}
+    /// Ingest a domain PELT sample (`pelt_util` normalized to `[0.0, 1.0]` per domain).
+    fn on_pelt_sample(&mut self, domain: DomainId, pelt_util: f64, pelt_runnable: f64);
+    /// Feed realized per-invocation CPU core utilization `cpu_util_cores = cpu_time_us / wall_time_us`
+    /// (clamped to `[0.05, cores_per_domain]`). Default no-op on L0.
+    fn on_util_sample(&mut self, _domain: DomainId, _fqdn: &str, _cpu_util_cores: f64, _domain_rho: f64) {}
+    fn predict(&self, domain: DomainId) -> DomainLoadEstimate;
 
-impl Eq for WaitEntry {}
-
-impl PartialOrd for WaitEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for WaitEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .deadline_ms
-            .cmp(&self.deadline_ms)
-            .then_with(|| other.seq.cmp(&self.seq))
-    }
-}
-
-#[derive(Clone)]
-struct ReadyEntry {
-    deadline_ms: OrderedFloat<f64>,
-    seq: u64,
-    ready_at: Instant,
-    prior_wait_ms: f64,
-    item: Arc<EnqueuedInvocation>,
-}
-
-impl PartialEq for ReadyEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.deadline_ms == other.deadline_ms && self.seq == other.seq
-    }
-}
-
-impl Eq for ReadyEntry {}
-
-impl PartialOrd for ReadyEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ReadyEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        other
-            .deadline_ms
-            .cmp(&self.deadline_ms)
-            .then_with(|| other.seq.cmp(&self.seq))
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ActiveAdmission {
-    domain_id: usize,
-    fqdn: String,
-    added_weight: f64,
-    reserved_cold_boot: bool,
-    reserved_booting_fqdn: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ColdWaveState {
-    WarmIdle,
-    Pioneer,
-    Follower,
-}
-
-fn cold_wave_state(idle_available: usize, total_containers: usize, booting: u32) -> ColdWaveState {
-    if idle_available > 0 {
-        ColdWaveState::WarmIdle
-    } else if total_containers == 0 && booting == 0 {
-        ColdWaveState::Pioneer
-    } else {
-        ColdWaveState::Follower
-    }
-}
-
-fn warm_idle_candidate_domains(warm_ready_domains: &[usize], fallback_domains: &[usize]) -> Vec<usize> {
-    if warm_ready_domains.is_empty() {
-        return fallback_domains.to_vec();
-    }
-    let mut ordered = Vec::with_capacity(fallback_domains.len());
-    for &d in warm_ready_domains {
-        if !ordered.contains(&d) {
-            ordered.push(d);
+    /// Diagnostic breakdown (`l1_rho`, `bias_cores`, `pred_pelt_cores`) for dispatch telemetry.
+    fn diagnostics(&self, domain: DomainId) -> DomainEstimatorDiag {
+        DomainEstimatorDiag {
+            l1_rho: self.predict(domain).effective_rho,
+            bias_cores: 0.0,
+            pred_pelt_cores: 0.0,
         }
     }
-    for &d in fallback_domains {
-        if !ordered.contains(&d) {
-            ordered.push(d);
-        }
+
+    fn estimator_name(&self) -> &'static str {
+        "custom"
     }
-    ordered
+
+    /// Optional latest `(pelt_util, pelt_runnable)` for dispatch telemetry.
+    fn latest_pelt(&self, _domain: DomainId) -> (Option<f64>, Option<f64>) {
+        (None, None)
+    }
+
+    /// Optional total active invocations + active cold boots across all domains.
+    fn total_active_activity(&self) -> (u32, u32) {
+        (0, 0)
+    }
+
+    /// Optional per-domain `(in_flight_count, active_boot_count)` for lifecycle inspection/tests.
+    fn domain_counts(&self, _domain: DomainId) -> (u32, u32) {
+        (0, 0)
+    }
 }
 
-fn pioneer_creation_credit(w_eff: f64, t_boot_ms: f64, queued_for_fqdn: usize, cores_per_domain: u32) -> f64 {
-    let wave_size = (queued_for_fqdn + 1).min(cores_per_domain as usize) as f64;
-    w_eff * t_boot_ms * wave_size
+#[derive(Clone, Copy, Debug, Default)]
+struct UnitDomainSlot {
+    in_flight_count: u32,
+    active_boot_count: u32,
+    active_weight: f64,
+    kernel_active_weight: Option<f64>,
+    pelt_util: Option<f64>,
+    pelt_runnable: Option<f64>,
 }
 
-fn scaleout_creation_credit(w_eff: f64, t_boot_ms: f64, queued_for_fqdn: usize, cores_per_domain: u32) -> f64 {
-    let wave_size = queued_for_fqdn.min(cores_per_domain as usize).max(1) as f64;
-    w_eff * t_boot_ms * wave_size
+/// L0 footprint estimator (`u_f = 1.0`, `u_boot = 1.0`, `b_d = 0.0`).
+#[derive(Debug, Clone)]
+pub struct UnitFootprintEstimator {
+    slots: Vec<UnitDomainSlot>,
+    domain_cores: Vec<f64>,
+    booting_by_fqdn: HashMap<String, u32>,
 }
 
-struct DomainState {
-    domain_id: SchedGroupID,
-    active_weight_sum: f64, // W_act,d
-    queue_weight_sum: f64,  // W_q,d
-    cold_booting: u32,      // k_cold,d
-    expected_finish_ms: BinaryHeap<Reverse<OrderedFloat<f64>>>,
-    wait_queue: BinaryHeap<WaitEntry>,
-    coalesced_wait_queue: BinaryHeap<WaitEntry>,
-}
+impl UnitFootprintEstimator {
+    pub fn new(num_domains: usize, cores_per_domain: u32) -> Self {
+        let n = num_domains.max(1);
+        Self::new_heterogeneous(vec![cores_per_domain.max(1); n])
+    }
 
-impl DomainState {
-    fn new(domain_id: SchedGroupID) -> Self {
+    pub fn new_heterogeneous(cores_by_domain: Vec<u32>) -> Self {
+        let domain_cores: Vec<f64> = if cores_by_domain.is_empty() {
+            vec![DEFAULT_CORES_PER_DOMAIN as f64]
+        } else {
+            cores_by_domain.into_iter().map(|c| (c.max(1)) as f64).collect()
+        };
         Self {
-            domain_id,
-            active_weight_sum: 0.0,
-            queue_weight_sum: 0.0,
-            cold_booting: 0,
-            expected_finish_ms: BinaryHeap::new(),
-            wait_queue: BinaryHeap::new(),
-            coalesced_wait_queue: BinaryHeap::new(),
+            slots: vec![UnitDomainSlot::default(); domain_cores.len()],
+            domain_cores,
+            booting_by_fqdn: HashMap::new(),
         }
     }
 
-    fn prune_finished(&mut self, now_ms: f64) {
-        while let Some(&Reverse(finish_time)) = self.expected_finish_ms.peek() {
-            if finish_time.into_inner() <= now_ms {
-                self.expected_finish_ms.pop();
-            } else {
-                break;
+    fn cores_for(&self, domain: DomainId) -> f64 {
+        self.domain_cores
+            .get(domain)
+            .copied()
+            .or_else(|| self.domain_cores.first().copied())
+            .unwrap_or(DEFAULT_CORES_PER_DOMAIN as f64)
+    }
+
+    pub fn set_kernel_active_weight(&mut self, domain: DomainId, kernel_w_d: Option<f64>) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.kernel_active_weight = kernel_w_d.filter(|w| w.is_finite() && *w > 0.0);
+        }
+    }
+
+    pub fn active_boots_for_fqdn(&self, fqdn: &str) -> u32 {
+        self.booting_by_fqdn.get(fqdn).copied().unwrap_or(0)
+    }
+}
+
+impl DomainLoadEstimator for UnitFootprintEstimator {
+    fn on_dispatch(&mut self, domain: DomainId, _fqdn: &str, weight: f64) -> f64 {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.in_flight_count = slot.in_flight_count.saturating_add(1);
+            if weight.is_finite() && weight > 0.0 {
+                slot.active_weight += weight;
+            }
+        }
+        1.0
+    }
+
+    fn on_complete(&mut self, domain: DomainId, _fqdn: &str, weight: f64, _footprint_used: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.in_flight_count = slot.in_flight_count.saturating_sub(1);
+            if slot.in_flight_count == 0 {
+                slot.active_weight = 0.0;
+            } else if weight.is_finite() && weight > 0.0 {
+                slot.active_weight = (slot.active_weight - weight).max(0.0);
             }
         }
     }
 
-    fn r_min(&mut self, now_ms: f64, rho_d: f64) -> f64 {
-        if rho_d < 1.0 {
-            return 0.0;
+    fn on_boot_start(&mut self, domain: DomainId, fqdn: &str) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.active_boot_count = slot.active_boot_count.saturating_add(1);
         }
-        self.prune_finished(now_ms);
-        if let Some(&Reverse(earliest)) = self.expected_finish_ms.peek() {
-            (earliest.into_inner() - now_ms).max(0.25)
-        } else {
-            0.5
+        *self.booting_by_fqdn.entry(fqdn.to_string()).or_insert(0) += 1;
+    }
+
+    fn on_boot_end(&mut self, domain: DomainId, fqdn: &str) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.active_boot_count = slot.active_boot_count.saturating_sub(1);
         }
+        if let Some(cnt) = self.booting_by_fqdn.get_mut(fqdn) {
+            *cnt = cnt.saturating_sub(1);
+            if *cnt == 0 {
+                self.booting_by_fqdn.remove(fqdn);
+            }
+        }
+    }
+
+    fn on_pelt_sample(&mut self, domain: DomainId, pelt_util: f64, pelt_runnable: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            if pelt_util.is_finite() {
+                slot.pelt_util = Some(pelt_util.max(0.0));
+            }
+            if pelt_runnable.is_finite() {
+                slot.pelt_runnable = Some(pelt_runnable.max(0.0));
+            }
+        }
+    }
+
+    fn predict(&self, domain: DomainId) -> DomainLoadEstimate {
+        let Some(slot) = self.slots.get(domain) else {
+            return DomainLoadEstimate::default();
+        };
+        let effective_rho =
+            ((slot.in_flight_count as f64) + (slot.active_boot_count as f64)) / self.cores_for(domain);
+        let active_weight = slot
+            .kernel_active_weight
+            .filter(|w| *w > 0.0)
+            .unwrap_or(slot.active_weight)
+            .max(0.0);
+        DomainLoadEstimate {
+            effective_rho,
+            active_weight,
+        }
+    }
+
+    fn estimator_name(&self) -> &'static str {
+        "unit"
+    }
+
+    fn latest_pelt(&self, domain: DomainId) -> (Option<f64>, Option<f64>) {
+        self.slots
+            .get(domain)
+            .map(|s| (s.pelt_util, s.pelt_runnable))
+            .unwrap_or((None, None))
+    }
+
+    fn total_active_activity(&self) -> (u32, u32) {
+        let in_flight = self.slots.iter().map(|s| s.in_flight_count).sum();
+        let boots = self.slots.iter().map(|s| s.active_boot_count).sum();
+        (in_flight, boots)
+    }
+
+    fn domain_counts(&self, domain: DomainId) -> (u32, u32) {
+        self.slots
+            .get(domain)
+            .map(|s| (s.in_flight_count, s.active_boot_count))
+            .unwrap_or((0, 0))
     }
 }
 
-#[derive(Clone, Copy)]
-struct FnEwma {
-    s_i: f64,    // de-stretched warm exec time ms
-    t_boot: f64, // cold boot duration ms
-    eta_i: f64,  // CPU duty cycle
+#[derive(Clone, Copy, Debug, Default)]
+struct UtilDomainSlot {
+    in_flight_count: u32,
+    active_boot_count: u32,
+    sum_active_footprints: f64,
+    pending_boot_footprints: f64,
+    active_weight: f64,
+    pelt_util: Option<f64>,
+    pelt_runnable: Option<f64>,
 }
 
-#[derive(Clone, Copy)]
-struct WelfareBreakdown {
-    rho: f64,
-    r_min: f64,
-    sigma: f64,
-    delta_sigma: f64,
-    benefit: f64,
-    warm_toll: f64,
-    cold_toll: f64,
-    queue_backlog_toll: f64,
-    creation_credit: f64,
-    io_overlap_credit: f64,
-    total_toll: f64,
-    net_gain: f64,
-}
-
-fn best_net_gain_candidate(candidates: &[(usize, WelfareBreakdown)]) -> Option<(usize, f64)> {
-    let mut best = None;
-    for (domain, price) in candidates {
-        if best.map_or(true, |(_, best_net_gain)| price.net_gain > best_net_gain) {
-            best = Some((*domain, price.net_gain));
-        }
-    }
-    best
-}
-
-fn should_use_work_conservation_override(wave_state: ColdWaveState, max_net: f64) -> bool {
-    wave_state != ColdWaveState::WarmIdle && max_net <= 0.0
-}
-
-fn should_admit_invocation(
-    wave_state: ColdWaveState,
-    max_net: f64,
-    force_coalesce: bool,
-) -> bool {
-    !force_coalesce && (wave_state == ColdWaveState::WarmIdle || max_net > 0.0)
-}
-
-struct CoordinatorState {
-    domains: Vec<DomainState>,
-    fn_state: HashMap<String, FnEwma>,
-    /// Cold starts admitted or queued as wave pioneers/scale-out replicas.
+/// L1 utilization-weighted footprint estimator (`u_hat[fqdn]` with contention-shrinkage guard).
+#[derive(Debug, Clone)]
+pub struct UtilWeightedEstimator {
+    slots: Vec<UtilDomainSlot>,
+    u_hat: HashMap<String, f64>,
+    domain_cores: Vec<f64>,
+    max_domain_cores: f64,
+    u_boot: f64,
+    ewma_alpha: f64,
+    low_contention_rho: f64,
     booting_by_fqdn: HashMap<String, u32>,
-    cold_wave_domain: HashMap<String, usize>,
-    express_ready_queue: VecDeque<ReadyEntry>,
-    express_streak: u32,
-    ready_queue: BinaryHeap<ReadyEntry>,
-    next_seq: u64,
-    active_admissions: HashMap<TransactionId, ActiveAdmission>,
-    invocation_starts: HashMap<TransactionId, Instant>,
-    pricing_queue_ms: HashMap<TransactionId, f64>,
-    timing_samples: HashMap<&'static str, Vec<CongestionPricingTimingSample>>,
-    theta_warm: f64,
-    theta_cold: f64,
-    phi_aff: f64,
-    start_instant: Instant,
 }
 
-/// Component timings for one successfully completed congestion-pricing invocation, in ms.
+impl UtilWeightedEstimator {
+    pub fn new(
+        num_domains: usize,
+        cores_per_domain: u32,
+        u_boot: f64,
+        ewma_alpha: f64,
+        low_contention_rho: f64,
+    ) -> Self {
+        Self::new_heterogeneous(
+            vec![cores_per_domain.max(1); num_domains.max(1)],
+            u_boot,
+            ewma_alpha,
+            low_contention_rho,
+        )
+    }
+
+    pub fn new_heterogeneous(
+        cores_by_domain: Vec<u32>,
+        u_boot: f64,
+        ewma_alpha: f64,
+        low_contention_rho: f64,
+    ) -> Self {
+        let domain_cores: Vec<f64> = if cores_by_domain.is_empty() {
+            vec![DEFAULT_CORES_PER_DOMAIN as f64]
+        } else {
+            cores_by_domain.into_iter().map(|c| (c.max(1)) as f64).collect()
+        };
+        let max_c = domain_cores
+            .iter()
+            .copied()
+            .fold(1.0_f64, f64::max);
+        Self {
+            slots: vec![UtilDomainSlot::default(); domain_cores.len()],
+            u_hat: HashMap::new(),
+            domain_cores,
+            max_domain_cores: max_c,
+            u_boot: if u_boot.is_finite() {
+                u_boot.clamp(MIN_FOOTPRINT_CORES, max_c)
+            } else {
+                DEFAULT_U_BOOT_CORES.min(max_c)
+            },
+            ewma_alpha: if ewma_alpha.is_finite() {
+                ewma_alpha.clamp(0.001, 1.0)
+            } else {
+                DEFAULT_UTIL_EWMA_ALPHA
+            },
+            low_contention_rho: if low_contention_rho.is_finite() {
+                low_contention_rho.max(0.0)
+            } else {
+                DEFAULT_UTIL_LOW_CONTENTION_RHO
+            },
+            booting_by_fqdn: HashMap::new(),
+        }
+    }
+
+    pub fn from_config(
+        num_domains: usize,
+        cores_per_domain: u32,
+        config: Option<&PostedPriceConfig>,
+    ) -> Self {
+        Self::from_config_heterogeneous(vec![cores_per_domain.max(1); num_domains.max(1)], config)
+    }
+
+    pub fn from_config_heterogeneous(
+        cores_by_domain: Vec<u32>,
+        config: Option<&PostedPriceConfig>,
+    ) -> Self {
+        let u_boot = config
+            .and_then(|c| c.u_boot)
+            .unwrap_or(DEFAULT_U_BOOT_CORES);
+        let ewma_alpha = config
+            .and_then(|c| c.util_ewma_alpha)
+            .unwrap_or(DEFAULT_UTIL_EWMA_ALPHA);
+        let low_contention_rho = config
+            .and_then(|c| c.util_low_contention_rho)
+            .unwrap_or(DEFAULT_UTIL_LOW_CONTENTION_RHO);
+        Self::new_heterogeneous(cores_by_domain, u_boot, ewma_alpha, low_contention_rho)
+    }
+
+    pub fn cores_per_domain(&self) -> f64 {
+        self.max_domain_cores
+    }
+
+    pub fn domain_cores(&self, domain: DomainId) -> f64 {
+        self.domain_cores
+            .get(domain)
+            .copied()
+            .or_else(|| self.domain_cores.first().copied())
+            .unwrap_or(self.max_domain_cores)
+    }
+
+    /// Raw EWMA CPU utilization `u_hat[fqdn]` in `[0.05, max_domain_cores]` (defaults to `1.0`).
+    pub fn raw_u_hat(&self, fqdn: &str) -> f64 {
+        self.u_hat
+            .get(fqdn)
+            .copied()
+            .unwrap_or(1.0)
+            .clamp(MIN_FOOTPRINT_CORES, self.max_domain_cores)
+    }
+
+    /// Effective L1 core footprint `max(1.0, u_hat[fqdn])` (capped at `max_domain_cores`):
+    /// preserves a `1.0`-core slot floor for single-core functions while scaling up for `u_hat > 1.0`.
+    pub fn estimated_footprint(&self, fqdn: &str) -> f64 {
+        self.raw_u_hat(fqdn).max(1.0).min(self.max_domain_cores)
+    }
+
+    /// Footprints of containers **currently executing inside `domain`'s cgroup** (excludes
+    /// pre-cgroup cold-starting invocations whose containers are still being created by Docker).
+    pub fn cgroup_load_cores(&self, domain: DomainId) -> f64 {
+        self.slots
+            .get(domain)
+            .map(|s| (s.sum_active_footprints - s.pending_boot_footprints).max(0.0))
+            .unwrap_or(0.0)
+    }
+
+    /// Instantaneous L1 load `L_l1[d] = cgroup_load_cores[d] + active_boots[d] * u_boot` in cores.
+    /// Avoids double-counting a cold invocation as both `u_hat` and `u_boot` while booting.
+    pub fn l1_load_cores(&self, domain: DomainId) -> f64 {
+        self.slots
+            .get(domain)
+            .map(|s| {
+                let cgrp = (s.sum_active_footprints - s.pending_boot_footprints).max(0.0);
+                (cgrp + (s.active_boot_count as f64) * self.u_boot).max(0.0)
+            })
+            .unwrap_or(0.0)
+    }
+}
+
+impl DomainLoadEstimator for UtilWeightedEstimator {
+    fn on_dispatch(&mut self, domain: DomainId, fqdn: &str, weight: f64) -> f64 {
+        let footprint = self.estimated_footprint(fqdn);
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.in_flight_count = slot.in_flight_count.saturating_add(1);
+            slot.sum_active_footprints += footprint;
+            if weight.is_finite() && weight > 0.0 {
+                slot.active_weight += weight;
+            }
+        }
+        footprint
+    }
+
+    fn on_complete(&mut self, domain: DomainId, _fqdn: &str, weight: f64, footprint_used: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.in_flight_count = slot.in_flight_count.saturating_sub(1);
+            if slot.in_flight_count == 0 {
+                slot.sum_active_footprints = 0.0;
+                slot.active_weight = 0.0;
+            } else {
+                if footprint_used.is_finite() && footprint_used > 0.0 {
+                    slot.sum_active_footprints = (slot.sum_active_footprints - footprint_used).max(0.0);
+                }
+                if weight.is_finite() && weight > 0.0 {
+                    slot.active_weight = (slot.active_weight - weight).max(0.0);
+                }
+            }
+        }
+    }
+
+    fn on_boot_start(&mut self, domain: DomainId, fqdn: &str) {
+        self.on_boot_start_with_footprint(domain, fqdn, 0.0);
+    }
+
+    fn on_boot_end(&mut self, domain: DomainId, fqdn: &str) {
+        self.on_boot_end_with_footprint(domain, fqdn, 0.0);
+    }
+
+    fn on_boot_start_with_footprint(&mut self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.active_boot_count = slot.active_boot_count.saturating_add(1);
+            if pending_footprint.is_finite() && pending_footprint > 0.0 {
+                slot.pending_boot_footprints += pending_footprint;
+            }
+        }
+        *self.booting_by_fqdn.entry(fqdn.to_string()).or_insert(0) += 1;
+    }
+
+    fn on_boot_end_with_footprint(&mut self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            slot.active_boot_count = slot.active_boot_count.saturating_sub(1);
+            if slot.active_boot_count == 0 {
+                slot.pending_boot_footprints = 0.0;
+            } else if pending_footprint.is_finite() && pending_footprint > 0.0 {
+                slot.pending_boot_footprints = (slot.pending_boot_footprints - pending_footprint).max(0.0);
+            }
+        }
+        if let Some(cnt) = self.booting_by_fqdn.get_mut(fqdn) {
+            *cnt = cnt.saturating_sub(1);
+            if *cnt == 0 {
+                self.booting_by_fqdn.remove(fqdn);
+            }
+        }
+    }
+
+    fn on_pelt_sample(&mut self, domain: DomainId, pelt_util: f64, pelt_runnable: f64) {
+        if let Some(slot) = self.slots.get_mut(domain) {
+            if pelt_util.is_finite() {
+                slot.pelt_util = Some(pelt_util.max(0.0));
+            }
+            if pelt_runnable.is_finite() {
+                slot.pelt_runnable = Some(pelt_runnable.max(0.0));
+            }
+        }
+    }
+
+    fn on_util_sample(&mut self, domain: DomainId, fqdn: &str, cpu_util_cores: f64, domain_rho: f64) {
+        if !cpu_util_cores.is_finite() || !domain_rho.is_finite() {
+            return;
+        }
+        let dom_c = self.domain_cores(domain);
+        let sample = cpu_util_cores.clamp(MIN_FOOTPRINT_CORES, dom_c);
+        let pelt_low = self
+            .slots
+            .get(domain)
+            .and_then(|s| s.pelt_util)
+            .map_or(true, |p| p < self.low_contention_rho);
+        let low_contention = domain_rho < self.low_contention_rho && pelt_low;
+
+        if low_contention {
+            if let Some(cur) = self.u_hat.get_mut(fqdn) {
+                *cur = ((1.0 - self.ewma_alpha) * (*cur) + self.ewma_alpha * sample)
+                    .clamp(MIN_FOOTPRINT_CORES, self.max_domain_cores);
+            } else {
+                self.u_hat.insert(fqdn.to_string(), sample);
+            }
+        } else {
+            // Contention-shrinkage guard: skip downward updates when contended;
+            // allow upward updates only if `sample > cur`.
+            let cur = self.raw_u_hat(fqdn);
+            if sample > cur {
+                let next = ((1.0 - self.ewma_alpha) * cur + self.ewma_alpha * sample)
+                    .clamp(MIN_FOOTPRINT_CORES, self.max_domain_cores);
+                self.u_hat.insert(fqdn.to_string(), next);
+            }
+        }
+    }
+
+    fn predict(&self, domain: DomainId) -> DomainLoadEstimate {
+        let Some(slot) = self.slots.get(domain) else {
+            return DomainLoadEstimate::default();
+        };
+        let effective_rho = self.l1_load_cores(domain) / self.domain_cores(domain);
+        DomainLoadEstimate {
+            effective_rho,
+            active_weight: slot.active_weight.max(0.0),
+        }
+    }
+
+    fn estimator_name(&self) -> &'static str {
+        "util_weighted"
+    }
+
+    fn latest_pelt(&self, domain: DomainId) -> (Option<f64>, Option<f64>) {
+        self.slots
+            .get(domain)
+            .map(|s| (s.pelt_util, s.pelt_runnable))
+            .unwrap_or((None, None))
+    }
+
+    fn total_active_activity(&self) -> (u32, u32) {
+        let in_flight = self.slots.iter().map(|s| s.in_flight_count).sum();
+        let boots = self.slots.iter().map(|s| s.active_boot_count).sum();
+        (in_flight, boots)
+    }
+
+    fn domain_counts(&self, domain: DomainId) -> (u32, u32) {
+        self.slots
+            .get(domain)
+            .map(|s| (s.in_flight_count, s.active_boot_count))
+            .unwrap_or((0, 0))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ObserverDomainSlot {
+    /// Predicted PELT load in core-units.
+    p_hat: f64,
+    /// Estimated residual load bias in core-units.
+    b_hat: f64,
+    /// Timestamp of last `advance_time` predict step.
+    last_ts: Instant,
+}
+
+/// L2 2-state steady-state Kalman / Luenberger PELT bias observer composed over L1 (`UtilWeightedEstimator`).
+///
+/// Note on units: `refresh_pelt_if_due` passes `pelt_util` normalized to `[0.0, 1.0]` per domain,
+/// so `on_pelt_sample` converts to core-units via `y_d = cores_per_domain * pelt_util`.
+#[derive(Debug, Clone)]
+pub struct PeltBiasObserverEstimator {
+    l1: UtilWeightedEstimator,
+    obs_slots: Vec<ObserverDomainSlot>,
+    pelt_half_life_ms: f64,
+    k_p: f64,
+    k_b: f64,
+    bias_clamp_cores: f64,
+}
+
+impl PeltBiasObserverEstimator {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_at(
+        num_domains: usize,
+        cores_per_domain: u32,
+        u_boot: f64,
+        ewma_alpha: f64,
+        low_contention_rho: f64,
+        pelt_half_life_ms: f64,
+        k_p: f64,
+        k_b: f64,
+        bias_clamp_cores: f64,
+        start_now: Instant,
+    ) -> Self {
+        let n = num_domains.max(1);
+        let l1 = UtilWeightedEstimator::new(
+            n,
+            cores_per_domain,
+            u_boot,
+            ewma_alpha,
+            low_contention_rho,
+        );
+        let c = l1.cores_per_domain();
+        Self {
+            l1,
+            obs_slots: vec![
+                ObserverDomainSlot {
+                    p_hat: 0.0,
+                    b_hat: 0.0,
+                    last_ts: start_now,
+                };
+                n
+            ],
+            pelt_half_life_ms: if pelt_half_life_ms.is_finite() && pelt_half_life_ms > 0.0 {
+                pelt_half_life_ms
+            } else {
+                DEFAULT_PELT_HALF_LIFE_MS
+            },
+            k_p: if k_p.is_finite() {
+                k_p.clamp(0.0, 2.0)
+            } else {
+                DEFAULT_OBSERVER_KP
+            },
+            k_b: if k_b.is_finite() {
+                k_b.clamp(0.0, 2.0)
+            } else {
+                DEFAULT_OBSERVER_KB
+            },
+            bias_clamp_cores: if bias_clamp_cores.is_finite() && bias_clamp_cores >= 0.0 {
+                bias_clamp_cores
+            } else {
+                0.5 * c
+            },
+        }
+    }
+
+    pub fn from_config_heterogeneous(
+        cores_by_domain: Vec<u32>,
+        config: Option<&PostedPriceConfig>,
+    ) -> Self {
+        let start_now = Instant::now();
+        let max_c = cores_by_domain
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(DEFAULT_CORES_PER_DOMAIN)
+            .max(1) as f64;
+        let u_boot = config
+            .and_then(|cfg| cfg.u_boot)
+            .unwrap_or(DEFAULT_U_BOOT_CORES);
+        let ewma_alpha = config
+            .and_then(|cfg| cfg.util_ewma_alpha)
+            .unwrap_or(DEFAULT_UTIL_EWMA_ALPHA);
+        let low_contention_rho = config
+            .and_then(|cfg| cfg.util_low_contention_rho)
+            .unwrap_or(DEFAULT_UTIL_LOW_CONTENTION_RHO);
+        let pelt_half_life_ms = config
+            .and_then(|cfg| cfg.pelt_half_life_ms)
+            .unwrap_or(DEFAULT_PELT_HALF_LIFE_MS);
+        let k_p = config
+            .and_then(|cfg| cfg.observer_kp)
+            .unwrap_or(DEFAULT_OBSERVER_KP);
+        let k_b = config
+            .and_then(|cfg| cfg.observer_kb)
+            .unwrap_or(DEFAULT_OBSERVER_KB);
+        let bias_clamp_cores = config
+            .and_then(|cfg| cfg.observer_bias_clamp_cores)
+            .unwrap_or(0.5 * max_c);
+        let l1 = UtilWeightedEstimator::new_heterogeneous(
+            cores_by_domain,
+            u_boot,
+            ewma_alpha,
+            low_contention_rho,
+        );
+        let n = l1.slots.len().max(1);
+        Self {
+            l1,
+            obs_slots: vec![
+                ObserverDomainSlot {
+                    p_hat: 0.0,
+                    b_hat: 0.0,
+                    last_ts: start_now,
+                };
+                n
+            ],
+            pelt_half_life_ms: if pelt_half_life_ms.is_finite() && pelt_half_life_ms > 0.0 {
+                pelt_half_life_ms
+            } else {
+                DEFAULT_PELT_HALF_LIFE_MS
+            },
+            k_p: if k_p.is_finite() {
+                k_p.clamp(0.0, 2.0)
+            } else {
+                DEFAULT_OBSERVER_KP
+            },
+            k_b: if k_b.is_finite() {
+                k_b.clamp(0.0, 2.0)
+            } else {
+                DEFAULT_OBSERVER_KB
+            },
+            bias_clamp_cores: if bias_clamp_cores.is_finite() && bias_clamp_cores >= 0.0 {
+                bias_clamp_cores
+            } else {
+                0.5 * max_c
+            },
+        }
+    }
+
+    pub fn from_config(
+        num_domains: usize,
+        cores_per_domain: u32,
+        config: Option<&PostedPriceConfig>,
+    ) -> Self {
+        Self::from_config_at(num_domains, cores_per_domain, config, Instant::now())
+    }
+
+    pub fn from_config_at(
+        num_domains: usize,
+        cores_per_domain: u32,
+        config: Option<&PostedPriceConfig>,
+        start_now: Instant,
+    ) -> Self {
+        let c = (cores_per_domain.max(1)) as f64;
+        let u_boot = config
+            .and_then(|cfg| cfg.u_boot)
+            .unwrap_or(DEFAULT_U_BOOT_CORES);
+        let ewma_alpha = config
+            .and_then(|cfg| cfg.util_ewma_alpha)
+            .unwrap_or(DEFAULT_UTIL_EWMA_ALPHA);
+        let low_contention_rho = config
+            .and_then(|cfg| cfg.util_low_contention_rho)
+            .unwrap_or(DEFAULT_UTIL_LOW_CONTENTION_RHO);
+        let pelt_half_life_ms = config
+            .and_then(|cfg| cfg.pelt_half_life_ms)
+            .unwrap_or(DEFAULT_PELT_HALF_LIFE_MS);
+        let k_p = config
+            .and_then(|cfg| cfg.observer_kp)
+            .unwrap_or(DEFAULT_OBSERVER_KP);
+        let k_b = config
+            .and_then(|cfg| cfg.observer_kb)
+            .unwrap_or(DEFAULT_OBSERVER_KB);
+        let bias_clamp_cores = config
+            .and_then(|cfg| cfg.observer_bias_clamp_cores)
+            .unwrap_or(0.5 * c);
+        Self::new_at(
+            num_domains,
+            cores_per_domain,
+            u_boot,
+            ewma_alpha,
+            low_contention_rho,
+            pelt_half_life_ms,
+            k_p,
+            k_b,
+            bias_clamp_cores,
+            start_now,
+        )
+    }
+
+    /// Predict step using the previous cgroup-resident `cgroup_load_cores[d]` BEFORE mutating `l1`.
+    /// Pre-cgroup Docker cold boots run in the host cgroup until `boot_end` / `cgroup_assigned_to_function`,
+    /// so excluding them from `p_hat` prevents false negative `b_hat` spikes during cold starts
+    /// while `predict(d)` still includes `active_boots * u_boot` in `L_hat_d`.
+    pub fn advance_time(&mut self, domain: DomainId, now: Instant) {
+        let l_cgrp_prev = self.l1.cgroup_load_cores(domain);
+        let Some(obs) = self.obs_slots.get_mut(domain) else {
+            return;
+        };
+        let dt_ms = (now.saturating_duration_since(obs.last_ts).as_secs_f64() * 1000.0)
+            .clamp(0.0, MAX_OBSERVER_DT_MS);
+        if dt_ms > 0.0 {
+            let gamma = 2.0_f64.powf(-dt_ms / self.pelt_half_life_ms);
+            let input_load = (l_cgrp_prev + obs.b_hat).max(0.0);
+            obs.p_hat = gamma * obs.p_hat + (1.0 - gamma) * input_load;
+        }
+        obs.last_ts = now;
+    }
+
+    pub fn on_dispatch_at(&mut self, domain: DomainId, fqdn: &str, weight: f64, now: Instant) -> f64 {
+        self.advance_time(domain, now);
+        self.l1.on_dispatch(domain, fqdn, weight)
+    }
+
+    pub fn on_complete_at(
+        &mut self,
+        domain: DomainId,
+        fqdn: &str,
+        weight: f64,
+        footprint_used: f64,
+        now: Instant,
+    ) {
+        self.advance_time(domain, now);
+        self.l1.on_complete(domain, fqdn, weight, footprint_used);
+    }
+
+    pub fn on_boot_start_at(&mut self, domain: DomainId, fqdn: &str, now: Instant) {
+        self.on_boot_start_with_footprint_at(domain, fqdn, 0.0, now);
+    }
+
+    pub fn on_boot_end_at(&mut self, domain: DomainId, fqdn: &str, now: Instant) {
+        self.on_boot_end_with_footprint_at(domain, fqdn, 0.0, now);
+    }
+
+    pub fn on_boot_start_with_footprint_at(
+        &mut self,
+        domain: DomainId,
+        fqdn: &str,
+        pending_footprint: f64,
+        now: Instant,
+    ) {
+        self.advance_time(domain, now);
+        self.l1.on_boot_start_with_footprint(domain, fqdn, pending_footprint);
+    }
+
+    pub fn on_boot_end_with_footprint_at(
+        &mut self,
+        domain: DomainId,
+        fqdn: &str,
+        pending_footprint: f64,
+        now: Instant,
+    ) {
+        self.advance_time(domain, now);
+        self.l1.on_boot_end_with_footprint(domain, fqdn, pending_footprint);
+    }
+
+    pub fn on_pelt_sample_at(
+        &mut self,
+        domain: DomainId,
+        pelt_util: f64,
+        pelt_runnable: f64,
+        now: Instant,
+    ) {
+        self.advance_time(domain, now);
+        self.l1.on_pelt_sample(domain, pelt_util, pelt_runnable);
+        if !pelt_util.is_finite() {
+            return;
+        }
+        let c = self.l1.domain_cores(domain);
+        // `pelt_util` is normalized to `[0.0, 1.0]` per domain -> convert to core-units `y_d`.
+        let y_d = c * pelt_util.max(0.0);
+        let l_cgrp_now = self.l1.cgroup_load_cores(domain);
+        let (_, active_boots) = self.l1.domain_counts(domain);
+        if let Some(obs) = self.obs_slots.get_mut(domain) {
+            let e_d = y_d - obs.p_hat;
+            obs.p_hat = (obs.p_hat + self.k_p * e_d).clamp(0.0, 2.0 * c);
+            if !(active_boots > 0 && e_d < 0.0) {
+                let clamp_c = self.bias_clamp_cores.min(c);
+                obs.b_hat = (obs.b_hat + self.k_b * e_d).clamp(-clamp_c, clamp_c);
+            }
+            if l_cgrp_now == 0.0 && y_d < 0.05 {
+                obs.b_hat *= 0.9;
+            }
+        }
+    }
+
+    pub fn bias_cores(&self, domain: DomainId) -> f64 {
+        self.obs_slots.get(domain).map(|o| o.b_hat).unwrap_or(0.0)
+    }
+
+    pub fn pred_pelt_cores(&self, domain: DomainId) -> f64 {
+        self.obs_slots.get(domain).map(|o| o.p_hat).unwrap_or(0.0)
+    }
+
+    pub fn l1_load_cores(&self, domain: DomainId) -> f64 {
+        self.l1.l1_load_cores(domain)
+    }
+
+    pub fn l_hat_cores(&self, domain: DomainId) -> f64 {
+        (self.l1.l1_load_cores(domain) + self.bias_cores(domain)).max(0.0)
+    }
+
+    pub fn estimated_footprint(&self, fqdn: &str) -> f64 {
+        self.l1.estimated_footprint(fqdn)
+    }
+}
+
+impl DomainLoadEstimator for PeltBiasObserverEstimator {
+    fn on_dispatch(&mut self, domain: DomainId, fqdn: &str, weight: f64) -> f64 {
+        self.on_dispatch_at(domain, fqdn, weight, Instant::now())
+    }
+
+    fn on_complete(&mut self, domain: DomainId, fqdn: &str, weight: f64, footprint_used: f64) {
+        self.on_complete_at(domain, fqdn, weight, footprint_used, Instant::now());
+    }
+
+    fn on_boot_start(&mut self, domain: DomainId, fqdn: &str) {
+        self.on_boot_start_at(domain, fqdn, Instant::now());
+    }
+
+    fn on_boot_end(&mut self, domain: DomainId, fqdn: &str) {
+        self.on_boot_end_at(domain, fqdn, Instant::now());
+    }
+
+    fn on_boot_start_with_footprint(&mut self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        self.on_boot_start_with_footprint_at(domain, fqdn, pending_footprint, Instant::now());
+    }
+
+    fn on_boot_end_with_footprint(&mut self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        self.on_boot_end_with_footprint_at(domain, fqdn, pending_footprint, Instant::now());
+    }
+
+    fn on_pelt_sample(&mut self, domain: DomainId, pelt_util: f64, pelt_runnable: f64) {
+        self.on_pelt_sample_at(domain, pelt_util, pelt_runnable, Instant::now());
+    }
+
+    fn on_util_sample(&mut self, domain: DomainId, fqdn: &str, cpu_util_cores: f64, domain_rho: f64) {
+        self.l1.on_util_sample(domain, fqdn, cpu_util_cores, domain_rho);
+    }
+
+    fn predict(&self, domain: DomainId) -> DomainLoadEstimate {
+        let l1_est = self.l1.predict(domain);
+        let effective_rho = self.l_hat_cores(domain) / self.l1.domain_cores(domain);
+        DomainLoadEstimate {
+            effective_rho,
+            active_weight: l1_est.active_weight,
+        }
+    }
+
+    fn diagnostics(&self, domain: DomainId) -> DomainEstimatorDiag {
+        let c = self.l1.domain_cores(domain);
+        DomainEstimatorDiag {
+            l1_rho: self.l1.l1_load_cores(domain) / c,
+            bias_cores: self.bias_cores(domain),
+            pred_pelt_cores: self.pred_pelt_cores(domain),
+        }
+    }
+
+    fn estimator_name(&self) -> &'static str {
+        "pelt_observer"
+    }
+
+    fn latest_pelt(&self, domain: DomainId) -> (Option<f64>, Option<f64>) {
+        self.l1.latest_pelt(domain)
+    }
+
+    fn total_active_activity(&self) -> (u32, u32) {
+        self.l1.total_active_activity()
+    }
+
+    fn domain_counts(&self, domain: DomainId) -> (u32, u32) {
+        self.l1.domain_counts(domain)
+    }
+}
+
+// ============================================================================
+// Stage B: Pure Narrow-Waist Unit Pricer (`domain_cpu_price`)
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DomainUnitPrice {
+    /// Unit self-slowdown factor (>= 0.0, strictly increasing in `effective_rho`).
+    pub sigma_d: f64,
+    /// Marginal co-runner externality rate per unit CPU time (`weight` units).
+    pub p_d: f64,
+}
+
+/// Pure narrow-waist CPU pricer with zero Ilúvatar state.
+///
+/// - `sigma_d(rho) = 0.12 * rho + 0.88 * rho^4`: strictly increasing from `0.0` at `rho = 0.0`
+///   with no flat zero dead zone, reaching `1.0` at `rho = 1.0` and rising superlinearly above `1.0`.
+/// - `phi(rho) = (1 / C_d) * d(sigma_d)/d(rho) = (0.12 + 3.52 * rho^3) / C_d`: marginal slowdown
+///   rate inflicted per co-runner unit time, rising superlinearly as `effective_rho -> 1.0+`.
+/// - `p_d = active_weight * phi(rho)`.
+pub fn domain_cpu_price(est: DomainLoadEstimate, cores_per_domain: f64) -> DomainUnitPrice {
+    let rho = if est.effective_rho.is_finite() {
+        est.effective_rho.max(0.0)
+    } else {
+        0.0
+    };
+    let c = if cores_per_domain.is_finite() {
+        cores_per_domain.max(1.0)
+    } else {
+        1.0
+    };
+    let active_w = if est.active_weight.is_finite() {
+        est.active_weight.max(0.0)
+    } else {
+        0.0
+    };
+
+    let rho2 = rho * rho;
+    let rho3 = rho2 * rho;
+    let rho4 = rho2 * rho2;
+
+    let sigma_d = SIGMA_LINEAR_SLOPE * rho + SIGMA_SUPERLINEAR_COEFF * rho4;
+    let phi_rho = (SIGMA_LINEAR_SLOPE + 4.0 * SIGMA_SUPERLINEAR_COEFF * rho3) / c;
+    let p_d = active_w * phi_rho;
+
+    DomainUnitPrice { sigma_d, p_d }
+}
+
+// ============================================================================
+// Stage C: Unified SMC Shopper (`invocation_price` & `rank_domains_for_dispatch`)
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InvocationStateKind {
+    /// Idle warm (or unplaced prewarm) container available on domain `d` (`state_cost = 0.0`).
+    WarmLocal,
+    /// Idle warm container exists only on some other domain `d' != d` (`state_cost = w_0 * c_mig_ms`).
+    WarmRemote { c_mig_ms: f64 },
+    /// Running on `d` requires a cold boot (`state_cost = w_0 * (c_boot_ms - gamma_create_ms)`).
+    ColdBoot { c_boot_ms: f64, gamma_create_ms: f64 },
+}
+
+impl InvocationStateKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::WarmLocal => "WarmLocal",
+            Self::WarmRemote { .. } => "WarmRemote",
+            Self::ColdBoot { .. } => "ColdBoot",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct InvocationDomainPrice {
+    pub domain: DomainId,
+    pub l1_rho: f64,
+    pub bias_cores: f64,
+    pub pred_pelt_cores: f64,
+    pub effective_rho: f64,
+    pub active_weight: f64,
+    pub pelt_util: Option<f64>,
+    pub pelt_runnable: Option<f64>,
+    pub sigma_d: f64,
+    pub p_d: f64,
+    pub w_0: f64,
+    pub s_i_ms: f64,
+    pub benefit_b_i: f64,
+    pub private_cost: f64,
+    pub externality_cost: f64,
+    pub state_cost: f64,
+    pub total_price: f64,
+    pub toll_to_benefit: f64,
+    pub state_kind: InvocationStateKind,
+}
+
+/// Evaluate the unified SMC welfare price `P_i(d)` on candidate domain `d`.
+/// All cost and benefit terms share identical `weight * time` (`ms^(1 - beta)`) welfare units.
+pub fn invocation_price(
+    domain: DomainId,
+    s_i_ms: f64,
+    beta: f64,
+    est: DomainLoadEstimate,
+    pelt: (Option<f64>, Option<f64>),
+    cores_per_domain: f64,
+    state_kind: InvocationStateKind,
+) -> InvocationDomainPrice {
+    let s_i = s_i_ms.max(MIN_S_I_MS);
+    let w_0 = s_i.powf(-beta);
+    let benefit_b_i = w_0 * s_i;
+
+    let unit = domain_cpu_price(est, cores_per_domain);
+    let private_cost = w_0 * unit.sigma_d * s_i;
+    let externality_cost = unit.p_d * s_i;
+    let state_cost = match state_kind {
+        InvocationStateKind::WarmLocal => 0.0,
+        InvocationStateKind::WarmRemote { c_mig_ms } => w_0 * c_mig_ms.max(0.0),
+        InvocationStateKind::ColdBoot {
+            c_boot_ms,
+            gamma_create_ms,
+        } => w_0 * (c_boot_ms - gamma_create_ms).max(0.0),
+    };
+    let total_price = private_cost + externality_cost + state_cost;
+    let toll_to_benefit = if benefit_b_i > 0.0 {
+        total_price / benefit_b_i
+    } else {
+        0.0
+    };
+
+    InvocationDomainPrice {
+        domain,
+        l1_rho: est.effective_rho,
+        bias_cores: 0.0,
+        pred_pelt_cores: 0.0,
+        effective_rho: est.effective_rho,
+        active_weight: est.active_weight,
+        pelt_util: pelt.0,
+        pelt_runnable: pelt.1,
+        sigma_d: unit.sigma_d,
+        p_d: unit.p_d,
+        w_0,
+        s_i_ms: s_i,
+        benefit_b_i,
+        private_cost,
+        externality_cost,
+        state_cost,
+        total_price,
+        toll_to_benefit,
+        state_kind,
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DispatchPriceSnapshot {
+    pub candidates: Vec<InvocationDomainPrice>,
+    pub ranked_first: DomainId,
+    pub s_i_ms: f64,
+    pub w_0: f64,
+    pub benefit_b_i: f64,
+    pub is_cold: bool,
+    pub cold_admitted: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FnStats {
+    s_i_ms: f64,
+    t_boot_ms: f64,
+}
+
+/// Component timings for one successfully completed invocation, in ms.
 #[derive(Clone, Copy, Debug)]
 pub struct CongestionPricingTimingSample {
     pub pricing_queue_ms: f64,
@@ -316,15 +1153,50 @@ pub struct CongestionPricingTimingSample {
     pub post_overhead_ms: f64,
 }
 
+#[derive(Clone)]
+struct QueuedEntry {
+    seq: u64,
+    enqueued_at: Instant,
+    item: Arc<EnqueuedInvocation>,
+}
+
+struct PricingQueueState {
+    by_fqdn: HashMap<String, VecDeque<QueuedEntry>>,
+    total_len: usize,
+    next_seq: u64,
+}
+
+impl PricingQueueState {
+    fn new() -> Self {
+        Self {
+            by_fqdn: HashMap::new(),
+            total_len: 0,
+            next_seq: 0,
+        }
+    }
+
+    fn alloc_seq(&mut self) -> u64 {
+        let s = self.next_seq;
+        self.next_seq = self.next_seq.wrapping_add(1);
+        s
+    }
+}
+
+struct TelemetryState {
+    invocation_starts: HashMap<TransactionId, Instant>,
+    pricing_queue_ms: HashMap<TransactionId, f64>,
+    timing_samples: HashMap<&'static str, Vec<CongestionPricingTimingSample>>,
+}
+
 fn function_class(fqdn: &str) -> &'static str {
-    let fqdn = fqdn.to_ascii_lowercase();
-    if fqdn.contains("graph-bfs") {
+    let lower = fqdn.to_ascii_lowercase();
+    if lower.contains("graph-bfs") {
         "graph-bfs"
-    } else if fqdn.contains("gzip") {
+    } else if lower.contains("gzip") {
         "gzip"
-    } else if fqdn.contains("pyaes") {
+    } else if lower.contains("pyaes") {
         "pyaes"
-    } else if fqdn.contains("hello") {
+    } else if lower.contains("hello") {
         "hello"
     } else {
         "other"
@@ -350,171 +1222,994 @@ fn summarize_metric(
     (percentile(0.50), mean, percentile(0.95))
 }
 
-impl CoordinatorState {
-    fn now_ms(&self) -> f64 {
-        self.start_instant.elapsed().as_secs_f64() * 1000.0
+#[derive(Clone, Copy, Debug)]
+struct FqdnContainerSnapshot {
+    has_idle: bool,
+    has_unplaced_idle: bool,
+    total_containers: usize,
+}
+
+/// RAII guard for `on_dispatch` -> `on_complete` 1:1 domain attribution and exact footprint symmetry.
+pub struct PostedPriceDispatchGuard {
+    coordinator: Arc<PostedPriceCoordinator>,
+    domain: DomainId,
+    fqdn: String,
+    weight: f64,
+    footprint_used: f64,
+    s_i_ms: f64,
+    completed: bool,
+}
+
+impl PostedPriceDispatchGuard {
+    pub fn actual_domain(&self) -> DomainId {
+        self.domain
     }
 
-    fn alloc_seq(&mut self) -> u64 {
-        let seq = self.next_seq;
-        self.next_seq = self.next_seq.wrapping_add(1);
-        seq
+    pub fn weight(&self) -> f64 {
+        self.weight
     }
 
-    fn has_ready_work(&self) -> bool {
-        !self.express_ready_queue.is_empty() || !self.ready_queue.is_empty()
+    pub fn footprint_used(&self) -> f64 {
+        self.footprint_used
     }
 
-    fn should_take_express(&self) -> bool {
-        !self.express_ready_queue.is_empty()
-            && (self.ready_queue.is_empty() || self.express_streak < MAX_EXPRESS_STREAK)
+    pub fn s_i_ms(&self) -> f64 {
+        self.s_i_ms
     }
 
-    fn push_ready(
-        &mut self,
-        item: Arc<EnqueuedInvocation>,
-        deadline_ms: f64,
-        prior_wait_ms: f64,
-        express: bool,
-        admission: ActiveAdmission,
-    ) {
-        item.set_preferred_domain(Some(admission.domain_id as SchedGroupID));
-        self.active_admissions.insert(item.tid.clone(), admission);
-        let seq = self.alloc_seq();
-        let entry = ReadyEntry {
-            deadline_ms: OrderedFloat(deadline_ms),
-            seq,
-            ready_at: Instant::now(),
-            prior_wait_ms,
-            item,
-        };
-        if express {
-            self.express_ready_queue.push_back(entry);
-        } else {
-            self.ready_queue.push(entry);
+    pub fn complete_now(&mut self) {
+        if !self.completed {
+            self.completed = true;
+            self.coordinator.on_complete_with_footprint(
+                self.domain,
+                &self.fqdn,
+                self.weight,
+                self.footprint_used,
+            );
         }
     }
+}
 
-    fn active_count_for_fqdn(&self, fqdn: &str) -> usize {
-        self.active_admissions
-            .values()
-            .filter(|adm| adm.fqdn == fqdn)
-            .count()
+impl Drop for PostedPriceDispatchGuard {
+    fn drop(&mut self) {
+        self.complete_now();
     }
 }
 
-pub struct CongestionPricingCoordinator {
-    state: Mutex<CoordinatorState>,
-    fineloadbalancing: FineLoadBalancingWeak,
-    container_manager: Mutex<Option<Weak<ContainerManager>>>,
-    cmap: WorkerCharMap,
-    beta: f64,
-    rho_knee: f64,
-    cores_per_domain: u32,
-    max_queue_per_domain: usize,
-    freeze_calibration: bool,
-    cold_wave_coalescing: bool,
-    num_domains: usize,
+/// RAII guard for `on_boot_start` -> `on_boot_end` 1:1 cold-boot tracking.
+pub struct PostedPriceBootGuard {
+    coordinator: Arc<PostedPriceCoordinator>,
+    domain: DomainId,
+    fqdn: String,
+    pending_footprint: f64,
+    ended: bool,
 }
 
-impl CongestionPricingCoordinator {
+impl PostedPriceBootGuard {
+    pub fn finish_now(&mut self) {
+        if !self.ended {
+            self.ended = true;
+            self.coordinator
+                .on_boot_end_with_footprint(self.domain, &self.fqdn, self.pending_footprint);
+        }
+    }
+}
+
+impl Drop for PostedPriceBootGuard {
+    fn drop(&mut self) {
+        self.finish_now();
+    }
+}
+
+/// Bundle of dispatch attribution + lifecycle guards passed into worker execution.
+pub struct PostedPriceInvocationLifecycle {
+    pub actual_domain: DomainId,
+    pub s_i_ms: f64,
+    pub w_0: f64,
+    pub dispatch_rho: f64,
+    pub dispatch_guard: PostedPriceDispatchGuard,
+    pub boot_guard: Option<PostedPriceBootGuard>,
+}
+
+pub struct PostedPriceCoordinator {
+    estimator: RwLock<Box<dyn DomainLoadEstimator>>,
+    fn_state: RwLock<HashMap<String, FnStats>>,
+    booting_by_fqdn: RwLock<HashMap<String, u32>>,
+    queue: Mutex<PricingQueueState>,
+    telemetry: Mutex<TelemetryState>,
+    fineloadbalancing: FineLoadBalancingWeak,
+    container_manager: RwLock<Option<Weak<ContainerManager>>>,
+    cmap: WorkerCharMap,
+    beta: f64,
+    c_mig_ms: f64,
+    aging_grace_sec: f64,
+    aging_alpha: f64,
+    cores_per_domain: u32,
+    domain_assigned_cores: Vec<u32>,
+    max_queue_len: usize,
+    num_domains: usize,
+    rr_counter: AtomicU64,
+    last_pelt_poll_ns: AtomicU64,
+    start_instant: Instant,
+}
+
+pub type CongestionPricingCoordinator = PostedPriceCoordinator;
+
+impl PostedPriceCoordinator {
     pub fn new(
-        config: Option<&CongestionPricingConfig>,
+        config: Option<&PostedPriceConfig>,
         fineloadbalancing: FineLoadBalancingWeak,
         cmap: WorkerCharMap,
         cont_manager: Option<Arc<ContainerManager>>,
     ) -> Arc<Self> {
-        let (num_domains, detected_cores) = if let Some(flb) = fineloadbalancing.upgrade() {
+        Self::new_with_fallback_cores(
+            config,
+            fineloadbalancing,
+            cmap,
+            cont_manager,
+            DEFAULT_CORES_PER_DOMAIN,
+        )
+    }
+
+    pub fn new_with_fallback_cores(
+        config: Option<&PostedPriceConfig>,
+        fineloadbalancing: FineLoadBalancingWeak,
+        cmap: WorkerCharMap,
+        cont_manager: Option<Arc<ContainerManager>>,
+        fallback_total_cores: u32,
+    ) -> Arc<Self> {
+        let detected_domain_cores: Vec<u32> = if let Some(flb) = fineloadbalancing.upgrade() {
             let domains = flb.system_domains.immutable_clone();
-            let n = domains.len().max(1);
-            let c = domains.first().map(|d| d.assigned_cores).unwrap_or(DEFAULT_CORES_PER_DOMAIN);
-            (n, c)
+            if domains.is_empty() {
+                vec![fallback_total_cores.max(1)]
+            } else {
+                domains.iter().map(|d| d.assigned_cores.max(1)).collect()
+            }
         } else {
-            (1, DEFAULT_CORES_PER_DOMAIN)
+            vec![fallback_total_cores.max(1)]
         };
-
-        let beta = config.and_then(|c| c.welfare_beta).unwrap_or(1.0);
-        let rho_knee = config.and_then(|c| c.rho_knee).unwrap_or(1.05).max(0.0);
-        let cold_wave_coalescing = config.and_then(|c| c.cold_wave_coalescing).unwrap_or(true);
-        let cores_per_domain = config.and_then(|c| c.cores_per_domain).unwrap_or(detected_cores).max(1);
-        let max_queue_per_domain = config.and_then(|c| c.max_queue_per_domain).unwrap_or(DEFAULT_MAX_QUEUE_PER_DOMAIN);
-
-        let (theta_warm, theta_cold, phi_aff, freeze_calibration) = if let Some(cal) = config.and_then(|c| c.pricing_calibration.as_ref()) {
-            (
-                cal.theta_warm.unwrap_or(1.0).clamp(0.25, 3.0),
-                cal.theta_cold.unwrap_or(1.5).clamp(0.5, 5.0),
-                cal.phi_aff.unwrap_or(0.05),
-                cal.freeze_calibration.unwrap_or(false),
-            )
+        let num_domains = detected_domain_cores.len().max(1);
+        let domain_cores: Vec<u32> = if let Some(override_c) = config.and_then(|c| c.cores_per_domain) {
+            vec![override_c.max(1); num_domains]
         } else {
-            (1.0, 1.5, 0.05, false)
+            detected_domain_cores
         };
+        let estimator: Box<dyn DomainLoadEstimator> = match config
+            .and_then(|c| c.load_estimator)
+            .unwrap_or_default()
+        {
+            LoadEstimatorKind::Unit => Box::new(UnitFootprintEstimator::new_heterogeneous(domain_cores.clone())),
+            LoadEstimatorKind::UtilWeighted => {
+                Box::new(UtilWeightedEstimator::from_config_heterogeneous(domain_cores.clone(), config))
+            },
+            LoadEstimatorKind::PeltObserver => {
+                Box::new(PeltBiasObserverEstimator::from_config_heterogeneous(domain_cores.clone(), config))
+            },
+        };
+        Self::with_domain_cores_and_estimator(
+            config,
+            fineloadbalancing,
+            cmap,
+            cont_manager,
+            domain_cores,
+            estimator,
+        )
+    }
 
-        let mut domains = Vec::with_capacity(num_domains);
-        for d in 0..num_domains {
-            domains.push(DomainState::new(d as SchedGroupID));
-        }
+    pub fn with_estimator(
+        config: Option<&PostedPriceConfig>,
+        fineloadbalancing: FineLoadBalancingWeak,
+        cmap: WorkerCharMap,
+        cont_manager: Option<Arc<ContainerManager>>,
+        num_domains: usize,
+        estimator: Box<dyn DomainLoadEstimator>,
+    ) -> Arc<Self> {
+        let n = num_domains.max(1);
+        let detected_domain_cores: Vec<u32> = if let Some(override_c) = config.and_then(|c| c.cores_per_domain) {
+            vec![override_c.max(1); n]
+        } else if let Some(flb) = fineloadbalancing.upgrade() {
+            let domains = flb.system_domains.immutable_clone();
+            if domains.len() == n {
+                domains.iter().map(|d| d.assigned_cores.max(1)).collect()
+            } else {
+                let first_c = domains
+                    .first()
+                    .map(|d| d.assigned_cores.max(1))
+                    .unwrap_or(DEFAULT_CORES_PER_DOMAIN);
+                vec![first_c; n]
+            }
+        } else {
+            vec![DEFAULT_CORES_PER_DOMAIN; n]
+        };
+        Self::with_domain_cores_and_estimator(
+            config,
+            fineloadbalancing,
+            cmap,
+            cont_manager,
+            detected_domain_cores,
+            estimator,
+        )
+    }
 
-        let cont_weak = cont_manager.map(|cm| Arc::downgrade(&cm));
+    pub fn with_domain_cores_and_estimator(
+        config: Option<&PostedPriceConfig>,
+        fineloadbalancing: FineLoadBalancingWeak,
+        cmap: WorkerCharMap,
+        cont_manager: Option<Arc<ContainerManager>>,
+        domain_assigned_cores: Vec<u32>,
+        estimator: Box<dyn DomainLoadEstimator>,
+    ) -> Arc<Self> {
+        let domain_assigned_cores: Vec<u32> = if domain_assigned_cores.is_empty() {
+            vec![config
+                .and_then(|c| c.cores_per_domain)
+                .unwrap_or(DEFAULT_CORES_PER_DOMAIN)
+                .max(1)]
+        } else {
+            domain_assigned_cores.into_iter().map(|c| c.max(1)).collect()
+        };
+        let num_domains = domain_assigned_cores.len();
+        let cores_per_domain = domain_assigned_cores
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(DEFAULT_CORES_PER_DOMAIN)
+            .max(1);
+
+        let beta = config.and_then(|c| c.welfare_beta).unwrap_or(DEFAULT_BETA);
+        let max_queue_len = config
+            .and_then(|c| c.max_queue_len)
+            .unwrap_or(DEFAULT_MAX_QUEUE_LEN)
+            .max(1);
+        let c_mig_ms = config
+            .and_then(|c| c.c_mig_ms)
+            .unwrap_or(DEFAULT_C_MIG_MS)
+            .max(0.0);
+        let aging_grace_sec = config
+            .and_then(|c| c.aging_grace_sec)
+            .unwrap_or(DEFAULT_AGING_GRACE_SEC)
+            .max(0.0);
+        let aging_alpha = config
+            .and_then(|c| c.aging_alpha)
+            .unwrap_or(DEFAULT_AGING_ALPHA)
+            .max(0.0);
 
         Arc::new(Self {
-            state: Mutex::new(CoordinatorState {
-                domains,
-                fn_state: HashMap::new(),
-                booting_by_fqdn: HashMap::new(),
-                cold_wave_domain: HashMap::new(),
-                express_ready_queue: VecDeque::new(),
-                express_streak: 0,
-                ready_queue: BinaryHeap::new(),
-                next_seq: 0,
-                active_admissions: HashMap::new(),
+            estimator: RwLock::new(estimator),
+            fn_state: RwLock::new(HashMap::new()),
+            booting_by_fqdn: RwLock::new(HashMap::new()),
+            queue: Mutex::new(PricingQueueState::new()),
+            telemetry: Mutex::new(TelemetryState {
                 invocation_starts: HashMap::new(),
                 pricing_queue_ms: HashMap::new(),
                 timing_samples: HashMap::new(),
-                theta_warm,
-                theta_cold,
-                phi_aff,
-                start_instant: Instant::now(),
             }),
             fineloadbalancing,
-            container_manager: Mutex::new(cont_weak),
+            container_manager: RwLock::new(cont_manager.map(|cm| Arc::downgrade(&cm))),
             cmap,
             beta,
-            rho_knee,
+            c_mig_ms,
+            aging_grace_sec,
+            aging_alpha,
             cores_per_domain,
-            max_queue_per_domain,
-            freeze_calibration,
-            cold_wave_coalescing,
+            domain_assigned_cores,
+            max_queue_len,
             num_domains,
+            rr_counter: AtomicU64::new(0),
+            last_pelt_poll_ns: AtomicU64::new(0),
+            start_instant: Instant::now(),
         })
     }
 
     pub fn set_container_manager(&self, manager: Weak<ContainerManager>) {
-        *self.container_manager.lock() = Some(manager);
+        *self.container_manager.write() = Some(manager);
     }
 
-    fn fn_estimates(&self, state: &CoordinatorState, fqdn: &str) -> FnEwma {
-        if let Some(entry) = state.fn_state.get(fqdn) {
-            *entry
+    pub fn num_domains(&self) -> usize {
+        self.num_domains
+    }
+
+    pub fn cores_per_domain(&self) -> u32 {
+        self.cores_per_domain
+    }
+
+    pub fn domain_cores(&self, domain: DomainId) -> u32 {
+        self.domain_assigned_cores
+            .get(domain)
+            .copied()
+            .unwrap_or(self.cores_per_domain)
+    }
+
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    pub fn c_mig_ms(&self) -> f64 {
+        self.c_mig_ms
+    }
+
+    fn now_ms(&self) -> f64 {
+        self.start_instant.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn fn_stats(&self, fqdn: &str) -> FnStats {
+        if let Some(stats) = self.fn_state.read().get(fqdn).copied() {
+            return stats;
+        }
+        // Note: WorkerCharMap stores CpuWarmTime / CpuExecTime / CpuColdTime in SECONDS.
+        let cmap_warm_ms = self.cmap.get_avg(fqdn, Chars::CpuWarmTime) * 1000.0;
+        let cmap_exec_ms = self.cmap.get_avg(fqdn, Chars::CpuExecTime) * 1000.0;
+        let cmap_cold_ms = self.cmap.get_avg(fqdn, Chars::CpuColdTime) * 1000.0;
+
+        let s_i_ms = if cmap_warm_ms.is_finite() && cmap_warm_ms > 0.0 {
+            cmap_warm_ms.max(MIN_S_I_MS)
+        } else if cmap_exec_ms.is_finite() && cmap_exec_ms > 0.0 {
+            cmap_exec_ms.max(MIN_S_I_MS)
         } else {
-            let cmap_warm = self.cmap.get_avg(fqdn, Chars::CpuWarmTime);
-            let cmap_cold = self.cmap.get_avg(fqdn, Chars::CpuColdTime);
-            FnEwma {
-                s_i: if cmap_warm > 0.0 { cmap_warm } else { DEFAULT_S_I },
-                t_boot: if cmap_cold > 0.0 { cmap_cold } else { DEFAULT_T_BOOT },
-                eta_i: DEFAULT_ETA,
+            DEFAULT_S_I_MS
+        };
+        let t_boot_ms = if cmap_cold_ms.is_finite() && cmap_cold_ms > 0.0 {
+            cmap_cold_ms.max(1.0)
+        } else {
+            DEFAULT_T_BOOT_MS
+        };
+        FnStats { s_i_ms, t_boot_ms }
+    }
+
+    pub fn priority_weight(&self, fqdn: &str) -> (f64, f64) {
+        let s_i = self.fn_stats(fqdn).s_i_ms;
+        let w_0 = s_i.powf(-self.beta);
+        (s_i, w_0)
+    }
+
+    /// Queue-ordering priority with starvation deadband `aging_grace_sec`:
+    /// - `effective_wait_s = (wait_s - aging_grace_sec).max(0.0)`
+    /// - `w_eff = w_0 * (1.0 + aging_alpha * effective_wait_s)`
+    ///
+    /// Used strictly inside `pricing_queue` ordering/popping; never passed downstream.
+    /// When `wait_s <= aging_grace_sec`, returns `w_0` identically.
+    pub fn effective_queue_priority(&self, fqdn: &str, wait_s: f64) -> f64 {
+        let (_, w_0) = self.priority_weight(fqdn);
+        if !wait_s.is_finite() || self.aging_alpha <= 0.0 {
+            return w_0;
+        }
+        let effective_wait_s = (wait_s - self.aging_grace_sec).max(0.0);
+        if effective_wait_s == 0.0 {
+            w_0
+        } else {
+            w_0 * (1.0 + self.aging_alpha * effective_wait_s)
+        }
+    }
+
+    fn container_snapshot(&self, fqdn: &str) -> (FqdnContainerSnapshot, Vec<DomainId>) {
+        if let Some(cm) = self.container_manager.read().as_ref().and_then(Weak::upgrade) {
+            let (idle_warm, idle_prewarm, total_containers) = cm.cpu_container_wave_counts(fqdn);
+            let warm_domains: Vec<DomainId> = cm
+                .idle_cpu_warm_domains(fqdn)
+                .into_iter()
+                .filter(|&d| d < self.num_domains)
+                .collect();
+            let has_idle = (idle_warm + idle_prewarm) > 0;
+            // A prewarm container (or container with `last_domain == None`) has no prior domain
+            // cache footprint, so placing it on any domain incurs zero migration cost.
+            let has_unplaced_idle = has_idle && warm_domains.is_empty();
+            return (
+                FqdnContainerSnapshot {
+                    has_idle,
+                    has_unplaced_idle,
+                    total_containers,
+                },
+                warm_domains,
+            );
+        }
+        if let Some(flb) = self.fineloadbalancing.upgrade() {
+            if let Some(st) = flb.idle_cpu_container_state(fqdn) {
+                let has_idle = matches!(st, ContainerState::Warm | ContainerState::Prewarm);
+                return (
+                    FqdnContainerSnapshot {
+                        has_idle,
+                        has_unplaced_idle: has_idle,
+                        total_containers: usize::from(has_idle),
+                    },
+                    Vec::new(),
+                );
+            }
+        }
+        (
+            FqdnContainerSnapshot {
+                has_idle: false,
+                has_unplaced_idle: false,
+                total_containers: 0,
+            },
+            Vec::new(),
+        )
+    }
+
+    /// Poll FineSched PELT + runnable telemetry outside any coordinator lock (throttled to 2 ms)
+    /// and feed `DomainLoadEstimator::on_pelt_sample`.
+    pub fn refresh_pelt_if_due(&self) {
+        let elapsed_ns = self.start_instant.elapsed().as_nanos() as u64;
+        let prev = self.last_pelt_poll_ns.load(Ordering::Relaxed);
+        if prev != 0 && elapsed_ns.saturating_sub(prev) < PELT_REFRESH_INTERVAL_NS {
+            return;
+        }
+        if self
+            .last_pelt_poll_ns
+            .compare_exchange(prev, elapsed_ns, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        let Some(flb) = self.fineloadbalancing.upgrade() else {
+            return;
+        };
+        let mut samples = Vec::with_capacity(self.num_domains);
+        for d in 0..self.num_domains {
+            let gid = d as SchedGroupID;
+            let pelt_util = flb
+                .domain_pelt_like_utilization_percent(gid)
+                .ok()
+                .flatten()
+                .map(|pct| (pct / 100.0).max(0.0));
+            let runnable = flb.domain_runnable_load(gid);
+            if let Some(util) = pelt_util {
+                samples.push((d, util, runnable.unwrap_or(0.0)));
+            }
+        }
+        if !samples.is_empty() {
+            let mut est = self.estimator.write();
+            for (d, util, runnable) in samples {
+                est.on_pelt_sample(d, util, runnable);
             }
         }
     }
 
-    /// Take the start time and time spent in the coordinator's user-space queue.
+    // ========================================================================
+    // Stage A/C Lifecycle Callbacks (1:1 Domain Attribution)
+    // ========================================================================
+
+    pub fn on_dispatch(&self, domain: DomainId, fqdn: &str, weight: f64) -> f64 {
+        self.estimator.write().on_dispatch(domain, fqdn, weight)
+    }
+
+    pub fn on_complete(&self, domain: DomainId, fqdn: &str, weight: f64) {
+        self.on_complete_with_footprint(domain, fqdn, weight, 1.0);
+    }
+
+    pub fn on_complete_with_footprint(
+        &self,
+        domain: DomainId,
+        fqdn: &str,
+        weight: f64,
+        footprint_used: f64,
+    ) {
+        self.estimator
+            .write()
+            .on_complete(domain, fqdn, weight, footprint_used);
+    }
+
+    pub fn on_util_sample(
+        &self,
+        domain: DomainId,
+        fqdn: &str,
+        cpu_util_cores: f64,
+        domain_rho: f64,
+    ) {
+        self.estimator
+            .write()
+            .on_util_sample(domain, fqdn, cpu_util_cores, domain_rho);
+    }
+
+    pub fn on_boot_start(&self, domain: DomainId, fqdn: &str) {
+        self.on_boot_start_with_footprint(domain, fqdn, 0.0);
+    }
+
+    pub fn on_boot_start_with_footprint(&self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        *self.booting_by_fqdn.write().entry(fqdn.to_string()).or_insert(0) += 1;
+        self.estimator
+            .write()
+            .on_boot_start_with_footprint(domain, fqdn, pending_footprint);
+    }
+
+    pub fn on_boot_end(&self, domain: DomainId, fqdn: &str) {
+        self.on_boot_end_with_footprint(domain, fqdn, 0.0);
+    }
+
+    pub fn on_boot_end_with_footprint(&self, domain: DomainId, fqdn: &str, pending_footprint: f64) {
+        {
+            let mut boots = self.booting_by_fqdn.write();
+            if let Some(cnt) = boots.get_mut(fqdn) {
+                *cnt = cnt.saturating_sub(1);
+                if *cnt == 0 {
+                    boots.remove(fqdn);
+                }
+            }
+        }
+        self.estimator
+            .write()
+            .on_boot_end_with_footprint(domain, fqdn, pending_footprint);
+    }
+
+    pub fn on_pelt_sample(&self, domain: DomainId, pelt_util: f64, pelt_runnable: f64) {
+        self.estimator
+            .write()
+            .on_pelt_sample(domain, pelt_util, pelt_runnable);
+    }
+
+    pub fn predict_domain(&self, domain: DomainId) -> DomainLoadEstimate {
+        self.estimator.read().predict(domain)
+    }
+
+    pub fn domain_counts(&self, domain: DomainId) -> (u32, u32) {
+        self.estimator.read().domain_counts(domain)
+    }
+
+    pub fn start_boot_guard(self: &Arc<Self>, domain: DomainId, fqdn: &str) -> PostedPriceBootGuard {
+        self.start_boot_guard_with_footprint(domain, fqdn, 0.0)
+    }
+
+    pub fn start_boot_guard_with_footprint(
+        self: &Arc<Self>,
+        domain: DomainId,
+        fqdn: &str,
+        pending_footprint: f64,
+    ) -> PostedPriceBootGuard {
+        self.on_boot_start_with_footprint(domain, fqdn, pending_footprint);
+        PostedPriceBootGuard {
+            coordinator: self.clone(),
+            domain,
+            fqdn: fqdn.to_string(),
+            pending_footprint,
+            ended: false,
+        }
+    }
+
+    /// Immediately upon `acquire_cores` returning `actual_domain`, attribute in-flight load
+    /// (and boot start if cold) to `actual_domain` and emit dispatch-time telemetry.
+    pub fn begin_dispatch(
+        self: &Arc<Self>,
+        tid: &TransactionId,
+        fqdn: &str,
+        actual_domain: DomainId,
+        snapshot: Option<&DispatchPriceSnapshot>,
+        express_ranked_first: Option<DomainId>,
+    ) -> PostedPriceInvocationLifecycle {
+        let (s_i_ms, w_0, is_cold) = if let Some(snap) = snapshot {
+            (snap.s_i_ms, snap.w_0, snap.is_cold)
+        } else {
+            let (s_i, w_0) = self.priority_weight(fqdn);
+            (s_i, w_0, false)
+        };
+
+        let footprint_used = self.on_dispatch(actual_domain, fqdn, w_0);
+        let dispatch_guard = PostedPriceDispatchGuard {
+            coordinator: self.clone(),
+            domain: actual_domain,
+            fqdn: fqdn.to_string(),
+            weight: w_0,
+            footprint_used,
+            s_i_ms,
+            completed: false,
+        };
+        let boot_guard = if is_cold {
+            Some(self.start_boot_guard_with_footprint(actual_domain, fqdn, footprint_used))
+        } else {
+            None
+        };
+        let dispatch_rho = self.predict_domain(actual_domain).effective_rho;
+
+        if let Some(snap) = snapshot {
+            self.emit_dispatch_telemetry(tid, fqdn, snap, actual_domain);
+        } else {
+            let ranked_domain = express_ranked_first.unwrap_or(actual_domain);
+            debug!(
+                decision_time_ms = self.now_ms(),
+                tid = %tid,
+                fqdn = %fqdn,
+                function_class = function_class(fqdn),
+                policy = "posted_price",
+                ranked_domain,
+                actual_domain,
+                spilled = actual_domain != ranked_domain,
+                estimated_runtime_ms = s_i_ms,
+                priority_weight = w_0,
+                "[posted_price] express dispatch"
+            );
+        }
+
+        PostedPriceInvocationLifecycle {
+            actual_domain,
+            s_i_ms,
+            w_0,
+            dispatch_rho,
+            dispatch_guard,
+            boot_guard,
+        }
+    }
+
+    pub fn emit_dispatch_telemetry(
+        &self,
+        tid: &TransactionId,
+        fqdn: &str,
+        snapshot: &DispatchPriceSnapshot,
+        actual_domain: DomainId,
+    ) {
+        let now_ms = self.now_ms();
+        let fclass = function_class(fqdn);
+        let spilled = actual_domain != snapshot.ranked_first;
+        let load_estimator = self.estimator.read().estimator_name();
+        for cand in &snapshot.candidates {
+            let unit_cpu_toll = if cand.s_i_ms > 0.0 {
+                (cand.private_cost + cand.externality_cost) / cand.s_i_ms
+            } else {
+                0.0
+            };
+            debug!(
+                decision_time_ms = now_ms,
+                tid = %tid,
+                fqdn = %fqdn,
+                function_class = fclass,
+                policy = "posted_price",
+                load_estimator = load_estimator,
+                candidate_domain = cand.domain,
+                ranked_domain = snapshot.ranked_first,
+                actual_domain = actual_domain,
+                final_domain = actual_domain,
+                selected = cand.domain == actual_domain,
+                spilled = spilled,
+                admitted = !snapshot.is_cold || snapshot.cold_admitted,
+                likely_cold = snapshot.is_cold,
+                state_kind = cand.state_kind.as_str(),
+                estimated_runtime_ms = cand.s_i_ms,
+                priority_weight = cand.w_0,
+                l1_rho = cand.l1_rho,
+                bias_cores = cand.bias_cores,
+                pred_pelt_cores = cand.pred_pelt_cores,
+                effective_rho = cand.effective_rho,
+                rho = cand.effective_rho,
+                active_weight = cand.active_weight,
+                pelt_util = ?cand.pelt_util,
+                pelt_runnable = ?cand.pelt_runnable,
+                sigma_d = cand.sigma_d,
+                p_d = cand.p_d,
+                private_cost = cand.private_cost,
+                externality_cost = cand.externality_cost,
+                state_cost = cand.state_cost,
+                total_price = cand.total_price,
+                total_marginal_toll = cand.total_price,
+                benefit_B_i = cand.benefit_b_i,
+                benefit = cand.benefit_b_i,
+                toll_to_benefit = cand.toll_to_benefit,
+                unit_congestion_price = unit_cpu_toll,
+                net_gain = cand.benefit_b_i - cand.total_price,
+                welfare_beta = self.beta,
+                "[congestion_pricing] price candidate"
+            );
+        }
+    }
+
+    // ========================================================================
+    // Stage C: Dispatch-Time Ranking (Read-Lock Only!) & Express Helper
+    // ========================================================================
+
+    /// Lightweight helper for express-lane (`hello`, warm `s_i < 2 ms`) invocations.
+    /// Acquires only a brief read lock on `estimator` and returns `[warm_domain..., least_loaded...]`.
+    pub fn rank_domains_express(&self, fqdn: &str) -> Vec<DomainId> {
+        let (_, warm_domains) = self.container_snapshot(fqdn);
+        self.rank_domains_express_with_warm(warm_domains.as_slice())
+    }
+
+    pub fn rank_domains_express_with_warm(&self, warm_domains: &[DomainId]) -> Vec<DomainId> {
+        let n = self.num_domains;
+        let rr = (self.rr_counter.fetch_add(1, Ordering::Relaxed) as usize) % n;
+        let est_guard = self.estimator.read();
+        let mut entries: Vec<(DomainId, bool, bool, DomainLoadEstimate)> = (0..n)
+            .map(|d| {
+                let (in_flight, _) = est_guard.domain_counts(d);
+                let has_slot = in_flight < self.domain_cores(d);
+                (d, has_slot, warm_domains.contains(&d), est_guard.predict(d))
+            })
+            .collect();
+        drop(est_guard);
+
+        // Keep all `n` domains in the returned slice:
+        // 1. Domains with `in_flight_count < cores_per_domain` come first (warm & `effective_rho < 1.0`
+        //    preferred, then remaining `< cores_per_domain` domains by ascending `effective_rho`).
+        // 2. Domains with `in_flight_count >= cores_per_domain` are demoted to the back, sorted by
+        //    ascending `effective_rho` so a concurrent completion during `acquire_cores` still picks
+        //    the least-loaded domain and never sees an empty slice.
+        entries.sort_by(|(da, sa, wa, ea), (db, sb, wb, eb)| {
+            let warm_avail_a = *sa && *wa && ea.effective_rho < 1.0;
+            let warm_avail_b = *sb && *wb && eb.effective_rho < 1.0;
+            let tie_a = (*da + n - rr) % n;
+            let tie_b = (*db + n - rr) % n;
+            sb.cmp(sa)
+                .then_with(|| warm_avail_b.cmp(&warm_avail_a))
+                .then_with(|| OrderedFloat(ea.effective_rho).cmp(&OrderedFloat(eb.effective_rho)))
+                .then_with(|| OrderedFloat(ea.active_weight).cmp(&OrderedFloat(eb.active_weight)))
+                .then_with(|| wb.cmp(wa))
+                .then_with(|| tie_a.cmp(&tie_b))
+        });
+        entries.into_iter().map(|(d, _, _, _)| d).collect()
+    }
+
+    /// Evaluate `P_i(d)` across all `d in 0..num_domains` under a brief read lock on `estimator`,
+    /// returning `(ranked_domains, snapshot)`.
+    pub fn rank_domains_for_dispatch(&self, fqdn: &str) -> (Vec<DomainId>, DispatchPriceSnapshot) {
+        let (cont_snap, warm_domains) = self.container_snapshot(fqdn);
+        let active_boots = self.booting_by_fqdn.read().get(fqdn).copied().unwrap_or(0);
+        self.rank_domains_inner(
+            fqdn,
+            cont_snap.has_idle,
+            cont_snap.has_unplaced_idle,
+            cont_snap.total_containers + active_boots as usize,
+            &warm_domains,
+        )
+    }
+
+    /// Explicit state helper for unit testing Stage C domain ranking and locality-vs-spill.
+    pub fn rank_domains_with_state(
+        &self,
+        fqdn: &str,
+        has_idle: bool,
+        warm_domains: &[DomainId],
+        existing_replicas: usize,
+    ) -> (Vec<DomainId>, DispatchPriceSnapshot) {
+        let has_unplaced_idle = has_idle && warm_domains.is_empty();
+        self.rank_domains_inner(fqdn, has_idle, has_unplaced_idle, existing_replicas, warm_domains)
+    }
+
+    fn rank_domains_inner(
+        &self,
+        fqdn: &str,
+        has_idle: bool,
+        has_unplaced_idle: bool,
+        existing_replicas: usize,
+        warm_domains: &[DomainId],
+    ) -> (Vec<DomainId>, DispatchPriceSnapshot) {
+        let fn_stats = self.fn_stats(fqdn);
+        let s_i = fn_stats.s_i_ms;
+        let t_boot = fn_stats.t_boot_ms;
+        let n = self.num_domains;
+        let rr = (self.rr_counter.fetch_add(1, Ordering::Relaxed) as usize) % n;
+        let is_cold = !has_idle;
+
+        // Brief read lock on `estimator` ONLY; never held across `acquire_cores`.
+        let (estimates, diags, pelt_vals, has_slots, total_activity) = {
+            let est_guard = self.estimator.read();
+            let mut ests = Vec::with_capacity(n);
+            let mut dgs = Vec::with_capacity(n);
+            let mut pelts = Vec::with_capacity(n);
+            let mut slots = Vec::with_capacity(n);
+            for d in 0..n {
+                ests.push(est_guard.predict(d));
+                dgs.push(est_guard.diagnostics(d));
+                pelts.push(est_guard.latest_pelt(d));
+                slots.push(est_guard.domain_counts(d).0 < self.domain_cores(d));
+            }
+            let activity = est_guard.total_active_activity();
+            (ests, dgs, pelts, slots, activity)
+        };
+
+        let mut candidates = Vec::with_capacity(n);
+        for d in 0..n {
+            let c_per_dom = self.domain_cores(d) as f64;
+            let est = estimates[d];
+            let diag = diags[d];
+            let pelt = pelt_vals[d];
+            let unit = domain_cpu_price(est, c_per_dom);
+            let state_kind = if has_idle {
+                if has_unplaced_idle || warm_domains.contains(&d) {
+                    InvocationStateKind::WarmLocal
+                } else {
+                    InvocationStateKind::WarmRemote {
+                        c_mig_ms: self.c_mig_ms,
+                    }
+                }
+            } else {
+                let c_boot_ms = t_boot * (1.0 + BOOT_CONGESTION_FACTOR * unit.sigma_d);
+                // First replica unlocks warm execution (`Gamma_create = C_boot(d)`);
+                // scale-out replicas credit baseline isolated `T_boot`, leaving congestion stretch.
+                let gamma_create_ms = if existing_replicas == 0 {
+                    c_boot_ms
+                } else {
+                    t_boot
+                };
+                InvocationStateKind::ColdBoot {
+                    c_boot_ms,
+                    gamma_create_ms,
+                }
+            };
+            let mut cand = invocation_price(
+                d,
+                s_i,
+                self.beta,
+                est,
+                pelt,
+                c_per_dom,
+                state_kind,
+            );
+            cand.l1_rho = diag.l1_rho;
+            cand.bias_cores = diag.bias_cores;
+            cand.pred_pelt_cores = diag.pred_pelt_cores;
+            candidates.push(cand);
+        }
+
+        // Keep all `n` domains in `ranked_domains`: domains with `< cores_per_domain` active
+        // invocations come first (ordered by ascending `total_price`), followed by full
+        // `>= cores_per_domain` domains (ordered by ascending `total_price`).
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&ia, &ib| {
+            let ca = &candidates[ia];
+            let cb = &candidates[ib];
+            let tie_a = (ca.domain + n - rr) % n;
+            let tie_b = (cb.domain + n - rr) % n;
+            has_slots[ib]
+                .cmp(&has_slots[ia])
+                .then_with(|| OrderedFloat(ca.total_price).cmp(&OrderedFloat(cb.total_price)))
+                .then_with(|| OrderedFloat(ca.effective_rho).cmp(&OrderedFloat(cb.effective_rho)))
+                .then_with(|| tie_a.cmp(&tie_b))
+        });
+
+        let ranked_domains: Vec<DomainId> = order.iter().map(|&idx| candidates[idx].domain).collect();
+        let best = &candidates[order[0]];
+        let host_idle = total_activity.0 == 0 && total_activity.1 == 0;
+        let cold_admitted = !is_cold || best.total_price <= best.benefit_b_i || host_idle;
+
+        let snapshot = DispatchPriceSnapshot {
+            ranked_first: best.domain,
+            s_i_ms: best.s_i_ms,
+            w_0: best.w_0,
+            benefit_b_i: best.benefit_b_i,
+            is_cold,
+            cold_admitted,
+            candidates,
+        };
+        (ranked_domains, snapshot)
+    }
+
+    /// Dispatch-time routing entry point: returns `(ranked_domains, Option<DispatchPriceSnapshot>)`.
+    /// Warm express-lane invocations (`s_i < 2.0 ms`) use `rank_domains_express` (`snapshot = None`);
+    /// all other invocations use `rank_domains_for_dispatch`.
+    pub fn rank_for_item(
+        &self,
+        item: &Arc<EnqueuedInvocation>,
+    ) -> (Vec<DomainId>, Option<DispatchPriceSnapshot>) {
+        let fqdn = &item.registration.fqdn;
+        let (cont_snap, warm_domains) = self.container_snapshot(fqdn);
+        let s_i = self.fn_stats(fqdn).s_i_ms;
+        if cont_snap.has_idle && s_i < EXPRESS_LANE_MAX_S_I_MS {
+            let ranked = self.rank_domains_express_with_warm(&warm_domains);
+            return (ranked, None);
+        }
+        let active_boots = self.booting_by_fqdn.read().get(fqdn).copied().unwrap_or(0);
+        let (ranked, snapshot) = self.rank_domains_inner(
+            fqdn,
+            cont_snap.has_idle,
+            cont_snap.has_unplaced_idle,
+            cont_snap.total_containers + active_boots as usize,
+            &warm_domains,
+        );
+        (ranked, Some(snapshot))
+    }
+
+    fn is_fqdn_dispatchable(&self, fqdn: &str) -> bool {
+        let (cont_snap, warm_domains) = self.container_snapshot(fqdn);
+        if cont_snap.has_idle {
+            return true;
+        }
+        let active_boots = self.booting_by_fqdn.read().get(fqdn).copied().unwrap_or(0);
+        let (_, snap) = self.rank_domains_inner(
+            fqdn,
+            false,
+            false,
+            cont_snap.total_containers + active_boots as usize,
+            &warm_domains,
+        );
+        snap.cold_admitted
+    }
+
+    /// Select the highest-`w_eff` FQDN whose head item is currently eligible for dispatch
+    /// (`WarmIdle`, or `Cold` with `P_i(d*) <= B_i`). Ties in `w_eff` are broken strictly by
+    /// FIFO arrival timestamp (`enqueued_at`, then `seq`). Deferred cold FQDNs are skipped so
+    /// they never head-of-line block `WarmIdle` invocations behind them.
+    fn select_dispatchable_fqdn(&self, q: &PricingQueueState) -> Option<String> {
+        if q.total_len == 0 {
+            return None;
+        }
+        let now = Instant::now();
+        let mut fqdn_heads: Vec<(&String, OrderedFloat<f64>, Instant, u64)> = q
+            .by_fqdn
+            .iter()
+            .filter_map(|(fqdn, deque)| {
+                let front = deque.front()?;
+                let wait_s = now.saturating_duration_since(front.enqueued_at).as_secs_f64();
+                let w_eff = self.effective_queue_priority(fqdn, wait_s);
+                Some((fqdn, OrderedFloat(w_eff), front.enqueued_at, front.seq))
+            })
+            .collect();
+
+        // Highest effective priority first; strict FIFO `(enqueued_at, seq)` tie-break.
+        fqdn_heads.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.3.cmp(&b.3))
+        });
+
+        for (fqdn, _, _, _) in fqdn_heads {
+            if self.is_fqdn_dispatchable(fqdn) {
+                return Some(fqdn.clone());
+            }
+        }
+        None
+    }
+
+    /// Pop the next dispatchable invocation in `w_0` priority order, skipping deferred cold boots.
+    pub fn pop_dispatchable(&self) -> Option<Arc<EnqueuedInvocation>> {
+        let mut q = self.queue.lock();
+        let chosen_fqdn = self.select_dispatchable_fqdn(&q)?;
+        let entry = {
+            let deque = q.by_fqdn.get_mut(&chosen_fqdn)?;
+            let popped = deque.pop_front()?;
+            if deque.is_empty() {
+                q.by_fqdn.remove(&chosen_fqdn);
+            }
+            q.total_len = q.total_len.saturating_sub(1);
+            popped
+        };
+        drop(q);
+
+        let wait_ms = entry.enqueued_at.elapsed().as_secs_f64() * 1000.0;
+        let has_idle = self.container_snapshot(&entry.item.registration.fqdn).0.has_idle;
+        entry
+            .item
+            .likely_cold
+            .store(!has_idle, Ordering::Relaxed);
+        self.telemetry
+            .lock()
+            .pricing_queue_ms
+            .insert(entry.item.tid.clone(), wait_ms);
+        Some(entry.item)
+    }
+
+    /// Re-insert an invocation at the front of its FQDN subqueue if core acquisition raced,
+    /// preserving its original admission timestamp so FIFO tie-breaking and aging are unaffected.
+    pub fn requeue_front(&self, item: &Arc<EnqueuedInvocation>) {
+        let orig_enqueued_at = self
+            .telemetry
+            .lock()
+            .invocation_starts
+            .get(&item.tid)
+            .copied()
+            .unwrap_or_else(Instant::now);
+        let mut q = self.queue.lock();
+        let seq = q
+            .by_fqdn
+            .get(&item.registration.fqdn)
+            .and_then(|d| d.front())
+            .map(|e| e.seq.saturating_sub(1))
+            .unwrap_or_else(|| q.alloc_seq());
+        q.by_fqdn
+            .entry(item.registration.fqdn.clone())
+            .or_default()
+            .push_front(QueuedEntry {
+                seq,
+                enqueued_at: orig_enqueued_at,
+                item: item.clone(),
+            });
+        q.total_len += 1;
+    }
+
+    // ========================================================================
+    // Post-Execution EWMA & Timing Telemetry
+    // ========================================================================
+
     pub fn take_invocation_timing(&self, tid: &TransactionId) -> (f64, Instant) {
-        let mut state = self.state.lock();
-        let started_at = state
+        let mut tel = self.telemetry.lock();
+        let started_at = tel
             .invocation_starts
             .remove(tid)
             .unwrap_or_else(Instant::now);
-        let pricing_queue_ms = state.pricing_queue_ms.remove(tid).unwrap_or(0.0);
+        let pricing_queue_ms = tel.pricing_queue_ms.remove(tid).unwrap_or(0.0);
         (pricing_queue_ms, started_at)
     }
 
@@ -534,1260 +2229,47 @@ impl CongestionPricingCoordinator {
             post_overhead_ms = sample.post_overhead_ms,
             "[congestion_pricing] invocation timing"
         );
-        self.state.lock().timing_samples.entry(class).or_default().push(sample);
-    }
-
-    fn get_container_state(&self, fqdn: &str) -> ContainerState {
-        if let Some(cm) = self.container_manager.lock().as_ref().and_then(Weak::upgrade) {
-            cm.container_available(fqdn, Compute::CPU)
-        } else if let Some(flb) = self.fineloadbalancing.upgrade() {
-            flb.idle_cpu_container_state(fqdn).unwrap_or(ContainerState::Cold)
-        } else {
-            ContainerState::Cold
-        }
-    }
-
-    fn decrement_booting_fqdn(state: &mut CoordinatorState, fqdn: &str) -> u32 {
-        let mut remaining = 0;
-        if let Some(booting) = state.booting_by_fqdn.get_mut(fqdn) {
-            *booting = booting.saturating_sub(1);
-            remaining = *booting;
-            if *booting == 0 {
-                state.booting_by_fqdn.remove(fqdn);
-            }
-        }
-        remaining
-    }
-
-    fn release_active_admission_locked(
-        &self,
-        state: &mut CoordinatorState,
-        tid: Option<&TransactionId>,
-        fallback_domain: usize,
-        fqdn: &str,
-        is_cold_fallback: bool,
-    ) -> (usize, bool) {
-        if let Some(tid) = tid {
-            if let Some(adm) = state.active_admissions.remove(tid) {
-                if let Some(dom) = state.domains.get_mut(adm.domain_id) {
-                    dom.active_weight_sum = (dom.active_weight_sum - adm.added_weight).max(0.0);
-                    if adm.reserved_cold_boot {
-                        dom.cold_booting = dom.cold_booting.saturating_sub(1);
-                    }
-                }
-                if adm.reserved_booting_fqdn {
-                    Self::decrement_booting_fqdn(state, &adm.fqdn);
-                }
-                return (adm.domain_id, adm.reserved_cold_boot);
-            }
-        }
-        let s_i = self.fn_estimates(state, fqdn).s_i;
-        let is_express_warm = !is_cold_fallback && s_i < 2.0;
-        if let Some(dom) = state.domains.get_mut(fallback_domain) {
-            if !is_express_warm {
-                dom.active_weight_sum = (dom.active_weight_sum - s_i.powf(-self.beta)).max(0.0);
-            }
-            if is_cold_fallback {
-                dom.cold_booting = dom.cold_booting.saturating_sub(1);
-            }
-        }
-        (fallback_domain, is_cold_fallback)
-    }
-
-    /// Mark the in-flight cold wave as container-ready. The pioneer is still
-    /// using the container, so followers stay queued until it returns to idle.
-    pub fn on_cold_boot_finished(&self, fqdn: &str, domain_id: usize) {
-        let mut state = self.state.lock();
-        if domain_id < state.domains.len() {
-            state.cold_wave_domain.insert(fqdn.to_string(), domain_id);
-        }
-        Self::decrement_booting_fqdn(&mut state, fqdn);
-        if let Some(adm) = state
-            .active_admissions
-            .values_mut()
-            .find(|adm| adm.fqdn == fqdn && adm.reserved_booting_fqdn)
-        {
-            adm.reserved_booting_fqdn = false;
-        }
-    }
-
-    fn promote_next_pioneer_locked(&self, state: &mut CoordinatorState, fqdn: &str, preferred_domain: usize) -> bool {
-        let preferred = state.cold_wave_domain.get(fqdn).copied().unwrap_or(preferred_domain);
-        let mut order = Vec::with_capacity(state.domains.len());
-        if preferred < state.domains.len() {
-            order.push(preferred);
-        }
-        order.extend((0..state.domains.len()).filter(|domain| *domain != preferred));
-
-        let mut next_pioneer = None;
-        for domain_idx in order {
-            let domain = &mut state.domains[domain_idx];
-            let mut retained = BinaryHeap::new();
-            while let Some(entry) = domain.coalesced_wait_queue.pop() {
-                if next_pioneer.is_none() && entry.item.registration.fqdn == fqdn {
-                    next_pioneer = Some((domain_idx, entry));
-                } else {
-                    retained.push(entry);
-                }
-            }
-            domain.coalesced_wait_queue = retained;
-            if next_pioneer.is_some() {
-                break;
-            }
-        }
-
-        let Some((domain_idx, mut entry)) = next_pioneer else {
-            return false;
-        };
-        let now_ms = state.now_ms();
-        let fn_entry = self.fn_estimates(state, fqdn);
-        let w_base = fn_entry.s_i.powf(-self.beta);
-        let wait_ms = (now_ms - entry.enqueue_ms).max(0.0);
-        let deadline_ms = entry.enqueue_ms + scheduling_slack_ms(fn_entry.s_i);
-        {
-            let domain = &mut state.domains[domain_idx];
-            domain.queue_weight_sum = (domain.queue_weight_sum - entry.weight).max(0.0);
-            domain.active_weight_sum += w_base;
-            domain.cold_booting += 1;
-            domain.expected_finish_ms.push(Reverse(OrderedFloat(now_ms + fn_entry.t_boot)));
-        }
-        entry.is_cold = true;
-        entry.coalesced = false;
-        entry.item.likely_cold.store(true, std::sync::atomic::Ordering::Relaxed);
-        *state.booting_by_fqdn.entry(fqdn.to_string()).or_default() += 1;
-        state.cold_wave_domain.insert(fqdn.to_string(), domain_idx);
-        state.push_ready(
-            entry.item,
-            deadline_ms,
-            wait_ms,
-            false,
-            ActiveAdmission {
-                domain_id: domain_idx,
-                fqdn: fqdn.to_string(),
-                added_weight: w_base,
-                reserved_cold_boot: true,
-                reserved_booting_fqdn: true,
-            },
-        );
-        true
-    }
-
-    /// Release one coalesced follower as the next pioneer if the current boot
-    /// failed. Keeps the wave moving without dispatching duplicate cold starts.
-    pub fn on_cold_boot_failed(&self, fqdn: &str, failed_domain: usize) {
-        let mut state = self.state.lock();
-        let reserved_domain = state.cold_wave_domain.get(fqdn).copied().unwrap_or(failed_domain);
-        let remaining_boots = Self::decrement_booting_fqdn(&mut state, fqdn);
-        let s_i = self.fn_estimates(&state, fqdn).s_i;
-        if let Some(domain) = state.domains.get_mut(reserved_domain) {
-            domain.cold_booting = domain.cold_booting.saturating_sub(1);
-            domain.active_weight_sum = (domain.active_weight_sum - s_i.powf(-self.beta)).max(0.0);
-        }
-        if self.cold_wave_coalescing && remaining_boots == 0 {
-            self.promote_next_pioneer_locked(&mut state, fqdn, reserved_domain);
-        }
-        self.drain_wait_queues_locked(&mut state, reserved_domain);
-    }
-
-    /// Undo the scheduling reservation for a cold invocation that failed before
-    /// it entered execution.
-    pub fn on_cold_invocation_aborted(&self, fqdn: &str) {
-        let mut state = self.state.lock();
-        let domain_id = state.cold_wave_domain.get(fqdn).copied().unwrap_or(0);
-        Self::decrement_booting_fqdn(&mut state, fqdn);
-        let s_i = self.fn_estimates(&state, fqdn).s_i;
-        if let Some(domain) = state.domains.get_mut(domain_id) {
-            domain.cold_booting = domain.cold_booting.saturating_sub(1);
-            domain.active_weight_sum = (domain.active_weight_sum - s_i.powf(-self.beta)).max(0.0);
-        }
-        self.drain_wait_queues_locked(&mut state, domain_id);
-    }
-
-    /// Clean up exact per-TID reservation when an admitted invocation aborts before completion.
-    pub fn on_invocation_aborted(&self, tid: &TransactionId, fqdn: &str, acquire_failed: bool) {
-        let mut state = self.state.lock();
-        state.invocation_starts.remove(tid);
-        state.pricing_queue_ms.remove(tid);
-        let (released_dom, was_cold_boot) =
-            self.release_active_admission_locked(&mut state, Some(tid), 0, fqdn, false);
-
-        if self.cold_wave_coalescing && acquire_failed {
-            let remaining_boots = state.booting_by_fqdn.get(fqdn).copied().unwrap_or(0);
-            let total_warm = self
-                .container_manager
-                .lock()
-                .as_ref()
-                .and_then(Weak::upgrade)
-                .map(|cm| cm.cpu_container_wave_counts(fqdn).2)
-                .unwrap_or(0);
-            if remaining_boots == 0 && (was_cold_boot || (total_warm == 0 && state.active_count_for_fqdn(fqdn) == 0)) {
-                self.promote_next_pioneer_locked(&mut state, fqdn, released_dom);
-            }
-        }
-        self.drain_wait_queues_locked(&mut state, released_dom);
-    }
-
-    /// Promote coalesced followers after a container returns to the idle pool.
-    /// If the last container was removed (e.g. unhealthy) leaving 0 warm and 0
-    /// booting replicas, promote a single follower as the replacement pioneer.
-    pub fn on_warm_container_available(&self, fqdn: &str, preferred_domain: usize) {
-        if !self.cold_wave_coalescing {
-            return;
-        }
-        let Some(manager) = self.container_manager.lock().as_ref().and_then(Weak::upgrade) else {
-            return;
-        };
-        let (warm, prewarm, total_warm) = manager.cpu_container_wave_counts(fqdn);
-        let idle = warm + prewarm;
-        let mut state = self.state.lock();
-        if idle > 0 {
-            Self::promote_coalesced_followers_with_beta(
-                &mut state,
-                fqdn,
-                preferred_domain,
-                idle,
-                self.beta,
-            );
-        } else if total_warm == 0
-            && state.booting_by_fqdn.get(fqdn).copied().unwrap_or(0) == 0
-            && state.active_count_for_fqdn(fqdn) == 0
-        {
-            self.promote_next_pioneer_locked(&mut state, fqdn, preferred_domain);
-        }
-    }
-
-    #[cfg(test)]
-    fn promote_coalesced_followers(
-        state: &mut CoordinatorState,
-        fqdn: &str,
-        preferred_domain: usize,
-        available: usize,
-    ) {
-        Self::promote_coalesced_followers_with_beta(state, fqdn, preferred_domain, available, 1.0);
-    }
-
-    fn promote_coalesced_followers_with_beta(
-        state: &mut CoordinatorState,
-        fqdn: &str,
-        preferred_domain: usize,
-        mut available: usize,
-        beta: f64,
-    ) {
-        if available == 0 {
-            return;
-        }
-
-        let now_ms = state.now_ms();
-        let s_i = state.fn_state.get(fqdn).map(|f| f.s_i).unwrap_or(DEFAULT_S_I);
-        let is_express = s_i < 2.0;
-        let w_base = s_i.powf(-beta);
-
-        let num_domains = state.domains.len();
-        let mut domain_order = Vec::with_capacity(num_domains);
-        if preferred_domain < num_domains {
-            domain_order.push(preferred_domain);
-        }
-        domain_order.extend((0..num_domains).filter(|d| *d != preferred_domain));
-
-        let mut ready = Vec::new();
-        for domain_idx in domain_order {
-            let domain = &mut state.domains[domain_idx];
-            let mut retained = Vec::new();
-            while let Some(entry) = domain.coalesced_wait_queue.pop() {
-                if available > 0 && entry.coalesced && entry.item.registration.fqdn == fqdn {
-                    domain.queue_weight_sum = (domain.queue_weight_sum - entry.weight).max(0.0);
-                    entry.item.likely_cold.store(false, std::sync::atomic::Ordering::Relaxed);
-                    let wait_ms = (now_ms - entry.enqueue_ms).max(0.0);
-                    let deadline_ms = entry.enqueue_ms + scheduling_slack_ms(s_i);
-                    let target_dom = if preferred_domain < num_domains {
-                        preferred_domain
-                    } else {
-                        domain_idx
-                    };
-                    ready.push((entry.item, deadline_ms, wait_ms, target_dom));
-                    available -= 1;
-                } else {
-                    retained.push(entry);
-                }
-            }
-            for entry in retained {
-                domain.coalesced_wait_queue.push(entry);
-            }
-            if available == 0 {
-                break;
-            }
-        }
-        for (item, deadline_ms, wait_ms, target_dom) in ready {
-            let added_weight = if is_express { 0.0 } else { w_base };
-            if !is_express {
-                if let Some(dom) = state.domains.get_mut(target_dom) {
-                    dom.active_weight_sum += added_weight;
-                    dom.expected_finish_ms.push(Reverse(OrderedFloat(now_ms + s_i)));
-                }
-            }
-            state.push_ready(
-                item,
-                deadline_ms,
-                wait_ms,
-                is_express,
-                ActiveAdmission {
-                    domain_id: target_dom,
-                    fqdn: fqdn.to_string(),
-                    added_weight,
-                    reserved_cold_boot: false,
-                    reserved_booting_fqdn: false,
-                },
-            );
-        }
-    }
-
-    /// Snapshot domains with an idle warm container.
-    fn idle_warm_domains(&self, fqdn: &str) -> Vec<usize> {
-        let Some(cm) = self.container_manager.lock().as_ref().and_then(Weak::upgrade) else {
-            return Vec::new();
-        };
-        let Some(flb) = self.fineloadbalancing.upgrade() else {
-            return Vec::new();
-        };
-        let cgroups = cm.idle_cpu_warm_cgroups(fqdn);
-        if cgroups.is_empty() {
-            return Vec::new();
-        }
-        let mut domains: Vec<usize> = cgroups
-            .iter()
-            .filter_map(|cgroup| flb.preallocated_domains.cgroup_domain(cgroup))
-            .map(|domain| domain as usize)
-            .filter(|domain| *domain < self.num_domains)
-            .collect();
-        if domains.len() != cgroups.len() {
-            domains.extend(0..self.num_domains);
-        }
-        domains.sort_unstable();
-        domains.dedup();
-        domains
-    }
-
-    fn read_rho(&self, domain_id: SchedGroupID, state: &CoordinatorState) -> f64 {
-        if let Some(flb) = self.fineloadbalancing.upgrade() {
-            // TODO: incorporate in-flight core reservations cleanly without distorting PELT utilization.
-            if let Ok(Some(pelt_pct)) = flb.domain_pelt_like_utilization_percent(domain_id) {
-                let pelt_ratio = (pelt_pct / 100.0).max(0.0);
-                if pelt_pct >= 99.0 {
-                    if let Some(reader) = flb.core_metrics_reader.as_ref() {
-                        if let Some(group) = flb.preallocated_domains.get_schedgroup(domain_id) {
-                            let mut dsq_sum: u64 = 0;
-                            for cpu in &group.cores {
-                                if let Ok(dsq) = reader.domain_dsq_len(*cpu) {
-                                    dsq_sum = dsq;
-                                    break;
-                                }
-                            }
-                            if dsq_sum > 0 {
-                                return 1.0 + (dsq_sum as f64) / (self.cores_per_domain as f64);
-                            }
-                        }
-                    }
-                }
-                return pelt_ratio;
-            }
-        }
-        if let Some(dom) = state.domains.get(domain_id as usize) {
-            (dom.active_weight_sum / (self.cores_per_domain as f64)).max(0.0)
-        } else {
-            0.0
-        }
-    }
-
-    fn sigma_warm(&self, rho: f64, theta_warm: f64) -> f64 {
-        if rho <= self.rho_knee {
-            1.0
-        } else {
-            1.0 + theta_warm * (rho - self.rho_knee)
-        }
-    }
-
-    fn delta_sigma_warm(&self, rho: f64, eta: f64, c: f64, theta_warm: f64) -> f64 {
-        let delta_rho = eta / c;
-        self.sigma_warm(rho + delta_rho, theta_warm) - self.sigma_warm(rho, theta_warm)
-    }
-
-    fn delta_mu_warm(rho: f64, eta: f64, c: f64) -> f64 {
-        if rho < 1.0 && eta < 0.8 {
-            ((1.0 - rho).min(1.0 - eta) / c).max(0.0)
-        } else {
-            0.0
-        }
-    }
-
-    fn delta_sigma_cold(k_cold: u32, c: f64, theta_cold: f64) -> f64 {
-        theta_cold * ((k_cold + 1) as f64) / c
-    }
-
-    fn drain_wait_queues_locked(&self, state: &mut CoordinatorState, start_domain: usize) {
-        let now_ms = state.now_ms();
-        let theta_warm_val = state.theta_warm;
-        let c_per_dom = self.cores_per_domain as f64;
-        let n_doms = state.domains.len();
-        if n_doms == 0 {
-            return;
-        }
-
-        let mut order = Vec::with_capacity(n_doms);
-        if start_domain < n_doms {
-            order.push(start_domain);
-        }
-        order.extend((0..n_doms).filter(|d| *d != start_domain));
-
-        let mut drained_items = Vec::new();
-        for dom_idx in order {
-            loop {
-                let Some(top_clone) = state.domains[dom_idx].wait_queue.peek().cloned() else {
-                    break;
-                };
-                if top_clone.coalesced {
-                    break;
-                }
-                let fqdn = top_clone.item.registration.fqdn.clone();
-                let fn_est = self.fn_estimates(state, &fqdn);
-                let top_s_i = fn_est.s_i;
-                let top_t_boot = fn_est.t_boot;
-                let top_eta_i = fn_est.eta_i;
-
-                let wait_ms = (now_ms - top_clone.enqueue_ms).max(0.0);
-                let w_base_top = top_s_i.powf(-self.beta);
-                let w_eff_top = w_base_top * (1.0 + wait_ms / (2.0 * top_s_i.max(0.1)));
-                let is_express = !top_clone.is_cold && top_s_i < 2.0;
-
-                let dom = &mut state.domains[dom_idx];
-                dom.prune_finished(now_ms);
-                let rho_d = (dom.active_weight_sum / c_per_dom).max(0.0);
-                let r_min_d = dom.r_min(now_ms, rho_d);
-                let delta_sigma = self.delta_sigma_warm(rho_d, top_eta_i, c_per_dom, theta_warm_val);
-                let sigma = self.sigma_warm(rho_d, theta_warm_val);
-
-                let benefit = w_eff_top * ((r_min_d * sigma).max(0.01) - top_s_i * delta_sigma);
-                let toll = delta_sigma * dom.active_weight_sum * top_s_i;
-
-                if is_express || benefit - toll > 0.0 || rho_d < 1.0 {
-                    let popped = dom.wait_queue.pop().unwrap();
-                    dom.queue_weight_sum = (dom.queue_weight_sum - popped.weight).max(0.0);
-                    let added_weight = if is_express { 0.0 } else { w_base_top };
-                    let reserved_cold_boot = !is_express && popped.is_cold;
-                    if !is_express {
-                        dom.active_weight_sum += added_weight;
-                        if reserved_cold_boot {
-                            dom.cold_booting += 1;
-                        }
-                        let expected_dur = if popped.is_cold { top_t_boot } else { top_s_i };
-                        dom.expected_finish_ms.push(Reverse(OrderedFloat(now_ms + expected_dur)));
-                    }
-                    let deadline_ms = popped.enqueue_ms + scheduling_slack_ms(top_s_i);
-                    drained_items.push((
-                        popped.item,
-                        deadline_ms,
-                        wait_ms,
-                        is_express,
-                        ActiveAdmission {
-                            domain_id: dom_idx,
-                            fqdn,
-                            added_weight,
-                            reserved_cold_boot,
-                            reserved_booting_fqdn: popped.is_cold,
-                        },
-                    ));
-                } else {
-                    break;
-                }
-            }
-        }
-
-        for (item, deadline_ms, wait_ms, express, adm) in drained_items {
-            state.push_ready(item, deadline_ms, wait_ms, express, adm);
-        }
-
-        // Work-conservation anti-deadlock fallback: if zero invocations are active or ready
-        // anywhere in the coordinator, never leave non-coalesced wait_queue work stranded.
-        if !state.has_ready_work() && state.active_admissions.is_empty() {
-            let mut best_dom = None;
-            let mut best_deadline = OrderedFloat(f64::INFINITY);
-            for (idx, d) in state.domains.iter().enumerate() {
-                if let Some(top) = d.wait_queue.peek() {
-                    if !top.coalesced && top.deadline_ms < best_deadline {
-                        best_deadline = top.deadline_ms;
-                        best_dom = Some(idx);
-                    }
-                }
-            }
-            if let Some(dom_idx) = best_dom {
-                let popped = state.domains[dom_idx].wait_queue.pop().unwrap();
-                let fqdn = popped.item.registration.fqdn.clone();
-                let fn_est = self.fn_estimates(state, &fqdn);
-                let wait_ms = (now_ms - popped.enqueue_ms).max(0.0);
-                let w_base = fn_est.s_i.powf(-self.beta);
-                let deadline_ms = popped.enqueue_ms + scheduling_slack_ms(fn_est.s_i);
-                let is_express = !popped.is_cold && fn_est.s_i < 2.0;
-                let added_weight = if is_express { 0.0 } else { w_base };
-                let reserved_cold_boot = !is_express && popped.is_cold;
-                {
-                    let dom = &mut state.domains[dom_idx];
-                    dom.queue_weight_sum = (dom.queue_weight_sum - popped.weight).max(0.0);
-                    if !is_express {
-                        dom.active_weight_sum += added_weight;
-                        if reserved_cold_boot {
-                            dom.cold_booting += 1;
-                        }
-                        let expected_dur = if popped.is_cold { fn_est.t_boot } else { fn_est.s_i };
-                        dom.expected_finish_ms.push(Reverse(OrderedFloat(now_ms + expected_dur)));
-                    }
-                }
-                state.push_ready(
-                    popped.item,
-                    deadline_ms,
-                    wait_ms,
-                    is_express,
-                    ActiveAdmission {
-                        domain_id: dom_idx,
-                        fqdn,
-                        added_weight,
-                        reserved_cold_boot,
-                        reserved_booting_fqdn: popped.is_cold,
-                    },
-                );
-            }
-        }
-    }
-
-    pub fn on_completion(
-        &self,
-        domain_id: usize,
-        fqdn: &str,
-        wall_exec_ms: f64,
-        is_cold: bool,
-        rho_obs: f64,
-        cpu_exec_ms: Option<f64>,
-    ) {
-        self.on_completion_inner(None, domain_id, fqdn, wall_exec_ms, is_cold, rho_obs, cpu_exec_ms);
-    }
-
-    pub fn on_invocation_completed(
-        &self,
-        tid: &TransactionId,
-        domain_id: usize,
-        fqdn: &str,
-        wall_exec_ms: f64,
-        is_cold: bool,
-        rho_obs: f64,
-        cpu_exec_ms: Option<f64>,
-    ) {
-        self.on_completion_inner(Some(tid), domain_id, fqdn, wall_exec_ms, is_cold, rho_obs, cpu_exec_ms);
-    }
-
-    fn on_completion_inner(
-        &self,
-        tid: Option<&TransactionId>,
-        domain_id: usize,
-        fqdn: &str,
-        wall_exec_ms: f64,
-        is_cold: bool,
-        rho_obs: f64,
-        cpu_exec_ms: Option<f64>,
-    ) {
-        let mut state = self.state.lock();
-        let now_ms = state.now_ms();
-        let warm_sample_ms = cpu_exec_ms.unwrap_or(wall_exec_ms).max(0.05);
-
-        // 1. Online calibration update
-        if !self.freeze_calibration {
-            if !is_cold && rho_obs > self.rho_knee {
-                let s_prior = self.fn_estimates(&state, fqdn).s_i;
-                let s_obs = (warm_sample_ms / s_prior.max(0.05)).clamp(1.0, 4.0);
-                let theta_obs = (s_obs - 1.0) / (rho_obs - self.rho_knee);
-                let alpha = 0.02;
-                state.theta_warm = ((1.0 - alpha) * state.theta_warm + alpha * theta_obs).clamp(0.25, 3.0);
-            }
-            if is_cold {
-                if let Some(dom) = state.domains.get(domain_id) {
-                    if dom.cold_booting >= 2 {
-                        let alpha = 0.05;
-                        let t_prior = self.fn_estimates(&state, fqdn).t_boot;
-                        let s_obs = (wall_exec_ms / t_prior.max(1.0)).clamp(1.0, 5.0);
-                        let theta_obs = s_obs;
-                        state.theta_cold = ((1.0 - alpha) * state.theta_cold + alpha * theta_obs).clamp(0.5, 5.0);
-                    }
-                }
-            }
-        }
-
-        // 2. Release exact admission reservation BEFORE mutating fn_state so weight accounting never drifts
-        let (released_dom, _) =
-            self.release_active_admission_locked(&mut state, tid, domain_id, fqdn, is_cold);
-        if let Some(dom) = state.domains.get_mut(released_dom) {
-            dom.prune_finished(now_ms);
-        }
-
-        // 3. Per-function EWMA updates (use pure function execution duration when available so sub-2ms
-        // functions like `hello` are not pushed out of the express lane by HTTP RPC overhead).
-        let mut fn_entry = self.fn_estimates(&state, fqdn);
-        if !is_cold {
-            if rho_obs <= 1.0 {
-                fn_entry.s_i = (0.9 * fn_entry.s_i + 0.1 * warm_sample_ms).max(0.05);
-            } else {
-                let stretch = self.sigma_warm(rho_obs, state.theta_warm);
-                let s_norm = warm_sample_ms / stretch;
-                fn_entry.s_i = (0.9 * fn_entry.s_i + 0.1 * s_norm).max(0.05);
-            }
-        } else {
-            fn_entry.t_boot = (0.9 * fn_entry.t_boot + 0.1 * wall_exec_ms).max(1.0);
-        }
-
-        if let Some(cpu_ms) = cpu_exec_ms {
-            let realized_eta = (cpu_ms / wall_exec_ms.max(0.01)).clamp(0.05, 1.0);
-            fn_entry.eta_i = 0.9 * fn_entry.eta_i + 0.1 * realized_eta;
-        }
-        state.fn_state.insert(fqdn.to_string(), fn_entry);
-
-        // 4. Drain eligible wait_queue items across domains
-        self.drain_wait_queues_locked(&mut state, released_dom);
-    }
-
-    fn compute_welfare_gain(
-        &self,
-        domain_id: usize,
-        home_domain: usize,
-        price_as_cold: bool,
-        s_i: f64,
-        t_boot: f64,
-        eta_i: f64,
-        w_eff: f64,
-        creation_credit: f64,
-        rho_d: f64,
-        state: &mut CoordinatorState,
-        now_ms: f64,
-    ) -> WelfareBreakdown {
-        let c_per_dom = self.cores_per_domain as f64;
-        let theta_warm = state.theta_warm;
-        let theta_cold = state.theta_cold;
-        let phi_aff = state.phi_aff;
-        let dom = &mut state.domains[domain_id];
-        let r_min_d = dom.r_min(now_ms, rho_d);
-
-        let sigma = self.sigma_warm(rho_d, theta_warm);
-        let delta_sigma = self.delta_sigma_warm(rho_d, eta_i, c_per_dom, theta_warm);
-        let delta_mu = Self::delta_mu_warm(rho_d, eta_i, c_per_dom);
-        let home_bonus = if domain_id == home_domain {
-            phi_aff * s_i * (1.0_f64 - rho_d).max(0.0)
-        } else {
-            0.0
-        };
-
-        let benefit = w_eff * ((r_min_d * sigma).max(0.01) - s_i * delta_sigma + home_bonus);
-
-        let warm_toll = delta_sigma * dom.active_weight_sum * s_i;
-        let cold_toll = if price_as_cold {
-            let delta_cold = Self::delta_sigma_cold(dom.cold_booting, c_per_dom, theta_cold);
-            delta_cold * dom.active_weight_sum * t_boot
-        } else {
-            0.0
-        };
-        let eff_q_weight = dom.queue_weight_sum.min(c_per_dom);
-        let queue_backlog_toll = s_i.min(r_min_d) * delta_sigma * eff_q_weight;
-
-        let io_overlap_credit = delta_mu * s_i * eff_q_weight;
-        let gamma_d = creation_credit + io_overlap_credit;
-
-        let toll = warm_toll + cold_toll + queue_backlog_toll - gamma_d;
-        WelfareBreakdown {
-            rho: rho_d,
-            r_min: r_min_d,
-            sigma,
-            delta_sigma,
-            benefit,
-            warm_toll,
-            cold_toll,
-            queue_backlog_toll,
-            creation_credit,
-            io_overlap_credit,
-            total_toll: toll,
-            net_gain: benefit - toll,
-        }
-    }
-
-    fn route_or_enqueue(&self, item: &Arc<EnqueuedInvocation>) -> Result<()> {
-        let invocation_started_at = Instant::now();
-        let fqdn = &item.registration.fqdn;
-        let cstate = self.get_container_state(fqdn);
-        let warm_domains = self.idle_warm_domains(fqdn);
-
-        let mut hash_val: u64 = 0;
-        for b in fqdn.bytes() {
-            hash_val = hash_val.wrapping_mul(31).wrapping_add(b as u64);
-        }
-        let home_domain = (hash_val as usize) % self.num_domains.max(1);
-
-        let mut state = self.state.lock();
-        let now_ms = state.now_ms();
-        let spill_domain = if self.num_domains > 1 {
-            (home_domain + 1 + ((state.next_seq as usize) % (self.num_domains - 1))) % self.num_domains
-        } else {
-            home_domain
-        };
-
-        let queued_for_fqdn = state.express_ready_queue.iter()
-            .chain(state.ready_queue.iter())
-            .filter(|queued| queued.item.registration.fqdn == *fqdn)
-            .count()
-            + state.domains.iter().map(|domain| domain.wait_queue.iter()
-                .chain(domain.coalesced_wait_queue.iter())
-                .filter(|queued| queued.item.registration.fqdn == *fqdn).count()).sum::<usize>();
-        let (idle_warm_count, idle_prewarm_count, total_warm) = self
-            .container_manager
+        self.telemetry
             .lock()
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .map(|manager| manager.cpu_container_wave_counts(fqdn))
-            .unwrap_or_else(|| match cstate {
-                ContainerState::Warm => (1, 0, 1),
-                ContainerState::Prewarm => (0, 1, 1),
-                _ => (0, 0, 0),
-            });
-        let idle_available = idle_warm_count + idle_prewarm_count;
-        let booting = state.booting_by_fqdn.get(fqdn).copied().unwrap_or(0);
-        let total_booting_global: u32 = state.booting_by_fqdn.values().sum();
-        let wave_state = cold_wave_state(idle_available, total_warm, booting);
-        let n_doms = self.num_domains.max(1);
-        let home_rotated_domains: Vec<usize> = (0..n_doms)
-            .map(|offset| (home_domain + offset) % n_doms)
-            .collect();
-        let mut warm_candidates = warm_domains.clone();
-        if warm_candidates.is_empty() && idle_available > 0 {
-            warm_candidates.extend(home_rotated_domains.iter().copied());
-        }
-
-        let fn_est = self.fn_estimates(&state, fqdn);
-        let (s_i, t_boot, eta_i) = (fn_est.s_i, fn_est.t_boot, fn_est.eta_i);
-        let deadline_ms = now_ms + scheduling_slack_ms(s_i);
-
-        let w_base = s_i.powf(-self.beta);
-        let w_eff = w_base;
-
-        let underloaded_domains: Vec<(usize, f64)> = home_rotated_domains
-            .iter()
-            .copied()
-            .map(|domain| (domain, self.read_rho(domain as SchedGroupID, &state)))
-            .filter(|(_, rho)| *rho < 0.85)
-            .collect();
-        let replica_count = (total_warm + booting as usize).max(1);
-        let max_replicas = (self.cores_per_domain as usize * n_doms).max(2);
-        let max_global_boots = (self.cores_per_domain * 2).max(4);
-        // Scale out smoothly 1 replica at a time per FQDN when coalescing is enabled
-        // and at least one full wave per existing replica is already queued.
-        let scale_out = wave_state == ColdWaveState::Follower
-            && if self.cold_wave_coalescing {
-                booting == 0
-                    && total_booting_global < max_global_boots
-                    && replica_count < max_replicas
-                    && queued_for_fqdn >= replica_count
-                    && !underloaded_domains.is_empty()
-            } else {
-                total_warm < (self.cores_per_domain as usize) && booting < self.cores_per_domain
-            };
-        let likely_cold = wave_state == ColdWaveState::Pioneer || scale_out;
-        let force_coalesce = self.cold_wave_coalescing
-            && wave_state == ColdWaveState::Follower
-            && !scale_out
-            && idle_available == 0;
-        let creation_credit = match wave_state {
-            ColdWaveState::Pioneer => pioneer_creation_credit(w_eff, t_boot, queued_for_fqdn, self.cores_per_domain),
-            ColdWaveState::Follower if scale_out => scaleout_creation_credit(w_eff, t_boot, queued_for_fqdn, self.cores_per_domain),
-            _ => 0.0,
-        };
-        let is_cold = likely_cold;
-        item.likely_cold.store(likely_cold, std::sync::atomic::Ordering::Relaxed);
-        if likely_cold {
-            debug!(
-                tid = %item.tid,
-                fqdn = %fqdn,
-                wave_state = ?wave_state,
-                queued_for_fqdn,
-                idle_warm_count,
-                idle_prewarm_count,
-                total_warm,
-                booting,
-                creation_credit,
-                "[congestion_pricing] invocation predicted likely cold"
-            );
-        }
-
-        // Warm Express-Lane Bypass: sub-2.0ms warm tasks finish within a scheduler tick
-        // and bypass user-space congestion gating without distorting r_min or active_weight_sum.
-        if !likely_cold && !force_coalesce && s_i < 2.0 {
-            let primary = if !warm_domains.is_empty() {
-                warm_domains
-                    .iter()
-                    .copied()
-                    .min_by(|a, b| {
-                        let ra = self.read_rho(*a as SchedGroupID, &state);
-                        let rb = self.read_rho(*b as SchedGroupID, &state);
-                        ra.total_cmp(&rb)
-                    })
-                    .unwrap_or(home_domain)
-            } else {
-                home_domain
-            };
-            let po2_candidates = select_po2_candidates(
-                primary,
-                &home_rotated_domains,
-                rand::rng().random_range(0..n_doms),
-            );
-            let c_mig = soft_affinity_migration_cost(s_i);
-            let best_dom = po2_candidates
-                .into_iter()
-                .min_by(|a, b| {
-                    let ra = self.read_rho(*a as SchedGroupID, &state);
-                    let rb = self.read_rho(*b as SchedGroupID, &state);
-                    let ca = placement_ranking_cost(ra, s_i, 0.0, c_mig, warm_domains.contains(a));
-                    let cb = placement_ranking_cost(rb, s_i, 0.0, c_mig, warm_domains.contains(b));
-                    (OrderedFloat(ca), OrderedFloat(ra)).cmp(&(OrderedFloat(cb), OrderedFloat(rb)))
-                })
-                .unwrap_or(primary);
-
-            trace!(
-                tid = %item.tid,
-                fqdn = %fqdn,
-                s_i,
-                best_dom,
-                likely_cold,
-                queued_for_fqdn,
-                idle_warm_count,
-                idle_prewarm_count,
-                "[congestion_pricing] express-lane bypass admission"
-            );
-
-            state.invocation_starts.entry(item.tid.clone()).or_insert(invocation_started_at);
-            state.push_ready(
-                item.clone(),
-                deadline_ms,
-                0.0,
-                idle_available > 0,
-                ActiveAdmission {
-                    domain_id: best_dom,
-                    fqdn: fqdn.clone(),
-                    added_weight: 0.0,
-                    reserved_cold_boot: false,
-                    reserved_booting_fqdn: false,
-                },
-            );
-            return Ok(());
-        }
-
-        let domain_tie_key = |domain: usize, rho: f64, st: &CoordinatorState| {
-            let active_w = st.domains.get(domain).map(|d| d.active_weight_sum).unwrap_or(0.0);
-            let dist = (domain + n_doms - home_domain) % n_doms;
-            (OrderedFloat(rho), OrderedFloat(active_w), dist)
-        };
-
-        let candidates: Vec<usize> = match wave_state {
-            // Power-of-Two soft-affinity sampling: compare the best warm (or home)
-            // domain against one random alternate domain to prevent burst herding.
-            ColdWaveState::WarmIdle => {
-                let primary = if !warm_domains.is_empty() {
-                    warm_domains
-                        .iter()
-                        .copied()
-                        .min_by(|a, b| {
-                            let ra = self.read_rho(*a as SchedGroupID, &state);
-                            let rb = self.read_rho(*b as SchedGroupID, &state);
-                            ra.total_cmp(&rb)
-                        })
-                        .unwrap_or(home_domain)
-                } else {
-                    home_domain
-                };
-                select_po2_candidates(
-                    primary,
-                    &home_rotated_domains,
-                    rand::rng().random_range(0..n_doms),
-                )
-            },
-            ColdWaveState::Pioneer => {
-                let no_cold_boots: Vec<usize> = home_rotated_domains.iter().copied()
-                    .filter(|domain| state.domains[*domain].cold_booting == 0)
-                    .collect();
-                let pool = if no_cold_boots.is_empty() { home_rotated_domains.clone() } else { no_cold_boots };
-                let best = pool.into_iter().min_by(|a, b| {
-                    let rho_a = self.read_rho(*a as SchedGroupID, &state);
-                    let rho_b = self.read_rho(*b as SchedGroupID, &state);
-                    domain_tie_key(*a, rho_a, &state).cmp(&domain_tie_key(*b, rho_b, &state))
-                }).unwrap_or(home_domain);
-                vec![best]
-            },
-            ColdWaveState::Follower if scale_out => {
-                let pool: Vec<(usize, f64)> = if underloaded_domains.is_empty() {
-                    home_rotated_domains.iter().copied()
-                        .map(|d| (d, self.read_rho(d as SchedGroupID, &state)))
-                        .collect()
-                } else {
-                    underloaded_domains.clone()
-                };
-                let best = pool.into_iter()
-                    .min_by(|(da, ra), (db, rb)| {
-                        domain_tie_key(*da, *ra, &state).cmp(&domain_tie_key(*db, *rb, &state))
-                    })
-                    .map(|(domain, _)| domain)
-                    .unwrap_or(home_domain);
-                vec![best]
-            },
-            ColdWaveState::Follower => {
-                let preferred = if self.cold_wave_coalescing {
-                    state.cold_wave_domain.get(fqdn).copied()
-                } else {
-                    None
-                };
-                if let Some(pref) = preferred {
-                    vec![pref]
-                } else {
-                    home_rotated_domains.clone()
-                }
-            },
-        };
-        let mut price_candidates = Vec::with_capacity(candidates.len());
-        for candidate in candidates.iter().copied() {
-            let rho = self.read_rho(candidate as SchedGroupID, &state);
-            let price = self.compute_welfare_gain(
-                candidate, home_domain, likely_cold, s_i, t_boot, eta_i, w_eff,
-                creation_credit, rho, &mut state, now_ms,
-            );
-            price_candidates.push((candidate, price));
-        }
-        let (chosen_domain, mut max_net) = if wave_state == ColdWaveState::WarmIdle {
-            let c_mig = soft_affinity_migration_cost(s_i);
-            let best_warm = price_candidates
-                .iter()
-                .enumerate()
-                .min_by(|(idx_a, (da, pa)), (idx_b, (db, pb))| {
-                    let overload_a = pa.warm_toll + pa.cold_toll + pa.queue_backlog_toll;
-                    let overload_b = pb.warm_toll + pb.cold_toll + pb.queue_backlog_toll;
-                    let cost_a = placement_ranking_cost(
-                        pa.rho,
-                        s_i,
-                        overload_a,
-                        c_mig,
-                        warm_domains.contains(da),
-                    );
-                    let cost_b = placement_ranking_cost(
-                        pb.rho,
-                        s_i,
-                        overload_b,
-                        c_mig,
-                        warm_domains.contains(db),
-                    );
-                    let wa = state.domains.get(*da).map(|d| d.active_weight_sum).unwrap_or(0.0);
-                    let wb = state.domains.get(*db).map(|d| d.active_weight_sum).unwrap_or(0.0);
-                    (OrderedFloat(cost_a), OrderedFloat(pa.rho), OrderedFloat(wa), *idx_a).cmp(&(
-                        OrderedFloat(cost_b),
-                        OrderedFloat(pb.rho),
-                        OrderedFloat(wb),
-                        *idx_b,
-                    ))
-                })
-                .map(|(_, (d, p))| (*d, p.net_gain));
-            best_warm.unwrap_or((home_domain, f64::NEG_INFINITY))
-        } else {
-            best_net_gain_candidate(&price_candidates)
-                .unwrap_or((home_domain, f64::NEG_INFINITY))
-        };
-
-        let mut final_domain = chosen_domain;
-        let mut work_conservation_override = false;
-        // Warm-ready capacity has already incurred its memory cost. Keep its
-        // marginal price for domain ranking, but never use it to hold a ready
-        // WarmIdle invocation in the coordinator queue.
-        // Cold starts and scale-out still use the work-conservation fallback.
-        if should_use_work_conservation_override(wave_state, max_net) {
-            let fallback_candidates = candidates.clone();
-            for d in fallback_candidates {
-                let rho = self.read_rho(d as SchedGroupID, &state);
-                if rho < 1.0 {
-                    final_domain = d;
-                    max_net = 1.0;
-                    work_conservation_override = true;
-                    break;
-                }
-            }
-        }
-
-        let admitted = should_admit_invocation(wave_state, max_net, force_coalesce);
-        for (candidate, price) in price_candidates {
-            debug!(
-                decision_time_ms = now_ms,
-                tid = %item.tid,
-                fqdn = %fqdn,
-                function_class = function_class(fqdn),
-                candidate_domain = candidate,
-                chosen_domain,
-                final_domain,
-                selected = candidate == final_domain,
-                admitted,
-                force_coalesce,
-                work_conservation_override,
-                likely_cold,
-                wave_state = ?wave_state,
-                estimated_runtime_ms = s_i,
-                rho = price.rho,
-                r_min_ms = price.r_min,
-                sigma_warm = price.sigma,
-                delta_sigma_warm = price.delta_sigma,
-                benefit = price.benefit,
-                warm_toll = price.warm_toll,
-                cold_toll = price.cold_toll,
-                queue_backlog_toll = price.queue_backlog_toll,
-                creation_credit = price.creation_credit,
-                io_overlap_credit = price.io_overlap_credit,
-                total_marginal_toll = price.total_toll,
-                net_gain = price.net_gain,
-                welfare_beta = self.beta,
-                theta_warm = state.theta_warm,
-                theta_cold = state.theta_cold,
-                rho_knee = self.rho_knee,
-                queued_for_fqdn,
-                idle_warm_count,
-                idle_prewarm_count,
-                "[congestion_pricing] price candidate"
-            );
-        }
-
-        trace!(
-            tid = %item.tid,
-            fqdn = %fqdn,
-            home_domain,
-            spill_domain,
-            final_domain,
-            max_net,
-            is_cold,
-            likely_cold,
-            queued_for_fqdn,
-            idle_warm_count,
-            idle_prewarm_count,
-            "[congestion_pricing] routing decision"
-        );
-
-        if admitted {
-            if likely_cold {
-                *state.booting_by_fqdn.entry(fqdn.to_string()).or_default() += 1;
-                state.cold_wave_domain.insert(fqdn.to_string(), final_domain);
-            }
-            {
-                let dom = &mut state.domains[final_domain];
-                dom.active_weight_sum += w_base;
-                if is_cold {
-                    dom.cold_booting += 1;
-                }
-                let expected_dur = if is_cold { t_boot } else { s_i };
-                dom.expected_finish_ms.push(Reverse(OrderedFloat(now_ms + expected_dur)));
-            }
-            state.invocation_starts.entry(item.tid.clone()).or_insert(invocation_started_at);
-            state.push_ready(
-                item.clone(),
-                deadline_ms,
-                0.0,
-                false,
-                ActiveAdmission {
-                    domain_id: final_domain,
-                    fqdn: fqdn.clone(),
-                    added_weight: w_base,
-                    reserved_cold_boot: is_cold,
-                    reserved_booting_fqdn: likely_cold,
-                },
-            );
-        } else {
-            let queued_in_domain = state.domains[final_domain].wait_queue.len()
-                + state.domains[final_domain].coalesced_wait_queue.len();
-            let queue_limit = if force_coalesce {
-                self.max_queue_per_domain.saturating_mul(2)
-            } else {
-                self.max_queue_per_domain
-            };
-            if queued_in_domain >= queue_limit {
-                anyhow::bail!(
-                    "Congestion pricing: domain {} queue full ({}/{})",
-                    final_domain,
-                    queued_in_domain,
-                    queue_limit
-                );
-            }
-            if likely_cold {
-                *state.booting_by_fqdn.entry(fqdn.to_string()).or_default() += 1;
-                state.cold_wave_domain.insert(fqdn.to_string(), final_domain);
-            }
-            item.set_preferred_domain(Some(final_domain as SchedGroupID));
-            let seq = state.alloc_seq();
-            let dom = &mut state.domains[final_domain];
-            dom.queue_weight_sum += w_base;
-            let entry = WaitEntry {
-                deadline_ms: OrderedFloat(deadline_ms),
-                weight: w_base,
-                seq,
-                enqueue_ms: now_ms,
-                item: item.clone(),
-                is_cold,
-                coalesced: force_coalesce,
-            };
-            if force_coalesce {
-                dom.coalesced_wait_queue.push(entry);
-            } else {
-                dom.wait_queue.push(entry);
-            }
-            state.invocation_starts.entry(item.tid.clone()).or_insert(invocation_started_at);
-        }
-
-        Ok(())
+            .timing_samples
+            .entry(class)
+            .or_default()
+            .push(sample);
     }
 
-    /// Re-evaluate domain placement at dispatch time using live domain load and
-    /// warm-container locality with Power-of-Two sampling, transferring any active
-    /// reservation cleanly.
-    fn refresh_dispatch_domain_locked(
+    /// Update per-function `s_i` / `t_boot` EWMAs from realized invocation duration.
+    /// Does NOT touch in-flight counts (those are handled 1:1 by `PostedPriceDispatchGuard`).
+    pub fn record_execution_observation(
         &self,
-        state: &mut CoordinatorState,
-        item: &Arc<EnqueuedInvocation>,
-        warm_domains: &[usize],
+        domain_id: DomainId,
+        fqdn: &str,
+        wall_exec_ms: f64,
+        is_cold: bool,
+        cpu_exec_ms: Option<f64>,
     ) {
-        let n_doms = state.domains.len();
-        if n_doms <= 1 {
-            return;
-        }
-        let random_offset = rand::rng().random_range(0..n_doms);
-        self.refresh_dispatch_domain_with_offset_locked(state, item, warm_domains, random_offset);
-    }
-
-    fn refresh_dispatch_domain_with_offset_locked(
-        &self,
-        state: &mut CoordinatorState,
-        item: &Arc<EnqueuedInvocation>,
-        warm_domains: &[usize],
-        random_offset: usize,
-    ) {
-        let n_doms = state.domains.len();
-        if n_doms <= 1 {
-            return;
-        }
-        let Some((current_dom, added_weight, reserved_cold_boot)) = state
-            .active_admissions
-            .get(&item.tid)
-            .map(|adm| (adm.domain_id, adm.added_weight, adm.reserved_cold_boot))
-        else {
-            return;
-        };
-
-        let fqdn = &item.registration.fqdn;
-        let mut hash_val: u64 = 0;
-        for b in fqdn.bytes() {
-            hash_val = hash_val.wrapping_mul(31).wrapping_add(b as u64);
-        }
-        let home_domain = (hash_val as usize) % n_doms;
-        let home_rotated: Vec<usize> = (0..n_doms).map(|off| (home_domain + off) % n_doms).collect();
-        let is_cold = item.likely_cold.load(std::sync::atomic::Ordering::Relaxed);
-        let fn_est = self.fn_estimates(state, fqdn);
-        let (s_i, t_boot, eta_i) = (fn_est.s_i, fn_est.t_boot, fn_est.eta_i);
-        let w_eff = s_i.powf(-self.beta);
-        let now_ms = state.now_ms();
-        let aff_domain = if !is_cold && !warm_domains.is_empty() {
-            warm_domains
-                .iter()
-                .copied()
-                .min_by(|a, b| {
-                    let ra = self.read_rho(*a as SchedGroupID, state);
-                    let rb = self.read_rho(*b as SchedGroupID, state);
-                    ra.total_cmp(&rb)
-                })
-                .unwrap_or(warm_domains[0])
-        } else {
-            home_domain
-        };
-
-        let candidates: Vec<usize> = if !is_cold {
-            select_po2_candidates(aff_domain, &home_rotated, random_offset)
-        } else {
-            let no_other_cold: Vec<usize> = home_rotated
-                .iter()
-                .copied()
-                .filter(|&d| {
-                    let boots = state.domains[d].cold_booting;
-                    boots == 0 || (d == current_dom && reserved_cold_boot && boots == 1)
-                })
-                .collect();
-            let pool = if no_other_cold.is_empty() {
-                home_rotated
+        let est = self.predict_domain(domain_id);
+        let unit = domain_cpu_price(est, self.domain_cores(domain_id) as f64);
+        let mut stats = self.fn_stats(fqdn);
+        if !is_cold {
+            let raw_ms = cpu_exec_ms.unwrap_or(wall_exec_ms).max(MIN_S_I_MS);
+            let s_norm = if est.effective_rho <= 1.0 {
+                raw_ms
             } else {
-                no_other_cold
+                (raw_ms / (1.0 + unit.sigma_d)).max(MIN_S_I_MS)
             };
-            let primary = if pool.contains(&current_dom) {
-                current_dom
-            } else {
-                pool[0]
-            };
-            select_po2_candidates(primary, &pool, random_offset)
-        };
-
-        let mut best_dom = current_dom;
-        let mut best_key: Option<(OrderedFloat<f64>, OrderedFloat<f64>, OrderedFloat<f64>, usize)> = None;
-        let c_mig = soft_affinity_migration_cost(s_i);
-        for d in candidates {
-            let rho_d = self.read_rho(d as SchedGroupID, state);
-            let aff_target = if !is_cold && warm_domains.contains(&d) { d } else { aff_domain };
-            let price = self.compute_welfare_gain(
-                d, aff_target, is_cold, s_i, t_boot, eta_i, w_eff, 0.0, rho_d, state, now_ms,
-            );
-            let overload_toll = price.warm_toll + price.cold_toll + price.queue_backlog_toll;
-            let is_warm_dom = is_cold || warm_domains.contains(&d);
-            let cost = placement_ranking_cost(rho_d, s_i, overload_toll, c_mig, is_warm_dom);
-            let eff_w = (state.domains[d].active_weight_sum
-                - if d == current_dom { added_weight } else { 0.0 })
-            .max(0.0);
-            let dist = (d + n_doms - home_domain) % n_doms;
-            let key = (
-                OrderedFloat(cost),
-                OrderedFloat(rho_d),
-                OrderedFloat(eff_w),
-                dist,
-            );
-            if best_key.map_or(true, |cur| key < cur) {
-                best_key = Some(key);
-                best_dom = d;
-            }
+            stats.s_i_ms = (0.9 * stats.s_i_ms + 0.1 * s_norm).max(MIN_S_I_MS);
+        } else if wall_exec_ms.is_finite() && wall_exec_ms > 0.0 {
+            stats.t_boot_ms = (0.9 * stats.t_boot_ms + 0.1 * wall_exec_ms).max(1.0);
         }
-
-        if best_dom != current_dom {
-            if added_weight > 0.0 {
-                if let Some(old_dom) = state.domains.get_mut(current_dom) {
-                    old_dom.active_weight_sum = (old_dom.active_weight_sum - added_weight).max(0.0);
-                }
-                if let Some(new_dom) = state.domains.get_mut(best_dom) {
-                    new_dom.active_weight_sum += added_weight;
-                }
-            }
-            if reserved_cold_boot {
-                if let Some(old_dom) = state.domains.get_mut(current_dom) {
-                    old_dom.cold_booting = old_dom.cold_booting.saturating_sub(1);
-                }
-                if let Some(new_dom) = state.domains.get_mut(best_dom) {
-                    new_dom.cold_booting += 1;
-                }
-                state.cold_wave_domain.insert(fqdn.clone(), best_dom);
-            }
-            if let Some(adm) = state.active_admissions.get_mut(&item.tid) {
-                adm.domain_id = best_dom;
-            }
-        }
-        item.set_preferred_domain(Some(best_dom as SchedGroupID));
+        self.fn_state.write().insert(fqdn.to_string(), stats);
     }
 }
 
-impl Drop for CongestionPricingCoordinator {
+impl Drop for PostedPriceCoordinator {
     fn drop(&mut self) {
-        let state = self.state.lock();
+        let tel = self.telemetry.lock();
         for class in ["hello", "graph-bfs", "gzip", "pyaes", "other"] {
-            let Some(samples) = state.timing_samples.get(class) else {
+            let Some(samples) = tel.timing_samples.get(class) else {
                 continue;
             };
             if samples.is_empty() {
@@ -1818,466 +2300,96 @@ impl Drop for CongestionPricingCoordinator {
     }
 }
 
-impl InvokerCpuQueuePolicy for CongestionPricingCoordinator {
+impl InvokerCpuQueuePolicy for PostedPriceCoordinator {
     fn queue_len(&self) -> usize {
-        let state = self.state.lock();
-        let waiting: usize = state.domains.iter()
-            .map(|d| d.wait_queue.len() + d.coalesced_wait_queue.len()).sum();
-        waiting + state.express_ready_queue.len() + state.ready_queue.len()
+        self.queue.lock().total_len
     }
 
     fn est_queue_time(&self) -> f64 {
-        let state = self.state.lock();
-        let total_w_q: f64 = state.domains.iter().map(|d| d.queue_weight_sum).sum();
-        let avg_s_i = if !state.fn_state.is_empty() {
-            let sum: f64 = state.fn_state.values().map(|f| f.s_i).sum();
-            sum / (state.fn_state.len() as f64)
-        } else {
-            DEFAULT_S_I
-        };
-        ((total_w_q + state.ready_queue.len() as f64) * avg_s_i) / 1000.0
+        let q = self.queue.lock();
+        if q.total_len == 0 {
+            return 0.0;
+        }
+        let total_ms: f64 = q
+            .by_fqdn
+            .iter()
+            .map(|(fqdn, deque)| self.fn_stats(fqdn).s_i_ms * (deque.len() as f64))
+            .sum();
+        total_ms / 1000.0
     }
 
     fn peek_queue(&self) -> Option<Arc<EnqueuedInvocation>> {
-        let mut state = self.state.lock();
-        if !state.has_ready_work() && state.active_admissions.is_empty() {
-            self.drain_wait_queues_locked(&mut state, 0);
-        }
-        if state.should_take_express() {
-            state.express_ready_queue.front().map(|entry| entry.item.clone())
-        } else {
-            state.ready_queue.peek().map(|entry| entry.item.clone())
-        }
+        let q = self.queue.lock();
+        let fqdn = self.select_dispatchable_fqdn(&q)?;
+        q.by_fqdn.get(&fqdn)?.front().map(|e| e.item.clone())
     }
 
     fn pop_queue(&self) -> Arc<EnqueuedInvocation> {
-        let mut state = self.state.lock();
-        if !state.has_ready_work() && state.active_admissions.is_empty() {
-            self.drain_wait_queues_locked(&mut state, 0);
-        }
-        let entry = if state.should_take_express() {
-            state.express_streak = state.express_streak.saturating_add(1);
-            state
-                .express_ready_queue
-                .pop_front()
-                .expect("express_ready_queue verified non-empty")
-        } else if let Some(entry) = state.ready_queue.pop() {
-            state.express_streak = 0;
-            entry
-        } else {
-            state
-                .express_ready_queue
-                .pop_front()
-                .expect("pop_queue called without an admitted invocation")
-        };
-        let total_wait_ms = entry.prior_wait_ms + entry.ready_at.elapsed().as_secs_f64() * 1000.0;
-        state.pricing_queue_ms.insert(entry.item.tid.clone(), total_wait_ms);
-        drop(state);
-
-        let warm_domains = self.idle_warm_domains(&entry.item.registration.fqdn);
-        let mut state = self.state.lock();
-        self.refresh_dispatch_domain_locked(&mut state, &entry.item, &warm_domains);
-        entry.item
+        self.pop_dispatchable()
+            .expect("pop_queue called when peek_queue returned Some")
     }
 
     fn add_item_to_queue(&self, item: &Arc<EnqueuedInvocation>, _index: Option<usize>) -> Result<()> {
-        self.route_or_enqueue(item)
+        let now = Instant::now();
+        {
+            let mut q = self.queue.lock();
+            if q.total_len >= self.max_queue_len {
+                anyhow::bail!(
+                    "PostedPrice queue full ({}/{})",
+                    q.total_len,
+                    self.max_queue_len
+                );
+            }
+            let seq = q.alloc_seq();
+            q.by_fqdn
+                .entry(item.registration.fqdn.clone())
+                .or_default()
+                .push_back(QueuedEntry {
+                    seq,
+                    enqueued_at: now,
+                    item: item.clone(),
+                });
+            q.total_len += 1;
+        }
+        self.telemetry
+            .lock()
+            .invocation_starts
+            .entry(item.tid.clone())
+            .or_insert(now);
+        Ok(())
     }
 
     fn preview_fqdn_counts(&self, limit: usize) -> HashMap<String, usize> {
-        let state = self.state.lock();
+        let q = self.queue.lock();
         let mut counts = HashMap::new();
-        if limit == 0 {
+        if limit == 0 || q.total_len == 0 {
             return counts;
         }
+        let now = Instant::now();
+        let mut fqdns: Vec<(&String, OrderedFloat<f64>, Instant, u64, usize)> = q
+            .by_fqdn
+            .iter()
+            .filter_map(|(fqdn, deque)| {
+                let front = deque.front()?;
+                let wait_s = now.saturating_duration_since(front.enqueued_at).as_secs_f64();
+                let w_eff = self.effective_queue_priority(fqdn, wait_s);
+                Some((fqdn, OrderedFloat(w_eff), front.enqueued_at, front.seq, deque.len()))
+            })
+            .collect();
+        fqdns.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.2.cmp(&b.2))
+                .then_with(|| a.3.cmp(&b.3))
+        });
         let mut remaining = limit;
-        for entry in state.express_ready_queue.iter() {
+        for (fqdn, _, _, _, len) in fqdns {
             if remaining == 0 {
                 break;
             }
-            *counts.entry(entry.item.registration.fqdn.clone()).or_insert(0) += 1;
-            remaining -= 1;
-        }
-        let mut ready = state.ready_queue.clone();
-        while remaining > 0 {
-            let Some(entry) = ready.pop() else {
-                break;
-            };
-            *counts.entry(entry.item.registration.fqdn.clone()).or_insert(0) += 1;
-            remaining -= 1;
-        }
-        if remaining > 0 {
-            let mut all_entries: Vec<&WaitEntry> = Vec::new();
-            for d in &state.domains {
-                for entry in &d.wait_queue {
-                    all_entries.push(entry);
-                }
-                for entry in &d.coalesced_wait_queue {
-                    all_entries.push(entry);
-                }
-            }
-            all_entries.sort_by(|a, b| b.cmp(a));
-            for entry in all_entries.into_iter().take(remaining) {
-                *counts.entry(entry.item.registration.fqdn.clone()).or_insert(0) += 1;
-            }
+            let take = len.min(remaining);
+            counts.insert(fqdn.clone(), take);
+            remaining -= take;
         }
         counts
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::services::invocation::queueing::EnqueuedInvocation;
-    use crate::services::registration::RegisteredFunction;
-    use crate::services::resources::fineloadbalancing::FineLoadBalancingWeak;
-    use crate::worker_api::worker_config::{CongestionPricingCalibration, CongestionPricingConfig};
-    use iluvatar_library::char_map::worker_char_map;
-    use time::OffsetDateTime;
-
-    fn invocation_for(fqdn: &str, tid: &str) -> Arc<EnqueuedInvocation> {
-        let registration = Arc::new(RegisteredFunction {
-            fqdn: fqdn.to_string(),
-            cpus: 1,
-            memory: 64,
-            ..Default::default()
-        });
-        Arc::new(EnqueuedInvocation::new(
-            registration,
-            "{}".to_string(),
-            tid.to_string(),
-            OffsetDateTime::now_utc(),
-            10.0,
-            0.0,
-        ))
-    }
-
-    fn invocation(tid: &str) -> Arc<EnqueuedInvocation> {
-        invocation_for("wave.function", tid)
-    }
-
-    fn coordinator(config: Option<&CongestionPricingConfig>) -> Arc<CongestionPricingCoordinator> {
-        CongestionPricingCoordinator::new(
-            config,
-            FineLoadBalancingWeak::new(),
-            worker_char_map(),
-            None,
-        )
-    }
-
-    #[test]
-    fn pioneer_receives_wave_creation_credit() {
-        assert_eq!(cold_wave_state(0, 0, 0), ColdWaveState::Pioneer);
-        assert_eq!(pioneer_creation_credit(0.5, 200.0, 2, 4), 300.0);
-        assert_eq!(pioneer_creation_credit(0.5, 200.0, 8, 4), 400.0);
-
-        let coordinator = coordinator(None);
-        let pioneer = invocation("pioneer");
-        coordinator.add_item_to_queue(&pioneer, None).unwrap();
-        assert!(pioneer.likely_cold.load(std::sync::atomic::Ordering::Relaxed));
-        assert_eq!(pioneer.preferred_domain(), Some(0));
-        assert_eq!(coordinator.state.lock().booting_by_fqdn.get("wave.function"), Some(&1));
-    }
-
-    #[test]
-    fn warm_idle_candidates_prefer_ready_domains_without_excluding_spillover() {
-        let all_domains = vec![0, 1, 2, 3];
-        let warm_ready_domains = vec![1, 3];
-        assert_eq!(
-            warm_idle_candidate_domains(&warm_ready_domains, &all_domains),
-            vec![1, 3, 0, 2]
-        );
-        assert_eq!(warm_idle_candidate_domains(&[], &all_domains), all_domains);
-    }
-
-    #[test]
-    fn warm_idle_ranks_all_domains_and_spills_under_soft_affinity() {
-        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 0), vec![1, 0]);
-        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 1), vec![1, 2]);
-        assert_eq!(select_po2_candidates(1, &[0, 1, 2, 3], 2), vec![1, 3]);
-
-        // Scale-invariant soft-affinity hysteresis works identically for tiny (hello) and large (pyaes) functions.
-        for s_i in [0.05, 50.0, 300.0] {
-            let c_mig = soft_affinity_migration_cost(s_i);
-            // Warm domain at rho=0.35 vs alternate at rho=0.20 (diff 0.15 <= 0.20) -> warm wins.
-            assert!(
-                placement_ranking_cost(0.35, s_i, 0.0, c_mig, true)
-                    < placement_ranking_cost(0.20, s_i, 0.0, c_mig, false)
-            );
-            // Warm domain at rho=0.60 vs alternate at rho=0.20 (diff 0.40 > 0.20) -> alternate wins.
-            assert!(
-                placement_ranking_cost(0.20, s_i, 0.0, c_mig, false)
-                    < placement_ranking_cost(0.60, s_i, 0.0, c_mig, true)
-            );
-        }
-
-        let cmap = worker_char_map();
-        cmap.update("503.graph-bfs-0.0.1", Chars::CpuWarmTime, 50.0);
-        let coordinator = CongestionPricingCoordinator::new(
-            None,
-            FineLoadBalancingWeak::new(),
-            cmap,
-            None,
-        );
-        {
-            let mut state = coordinator.state.lock();
-            state.domains = (0..4).map(|d| DomainState::new(d as SchedGroupID)).collect();
-        }
-
-        // Warm domain 1 vs alternate domain 0 (offset=0): rho_1 - rho_0 = 0.15 <= 0.20 -> keeps domain 1.
-        let item_keep = invocation_for("503.graph-bfs-0.0.1", "tid-aff-keep");
-        coordinator.add_item_to_queue(&item_keep, None).unwrap();
-        item_keep.likely_cold.store(false, std::sync::atomic::Ordering::Relaxed);
-        {
-            let mut state = coordinator.state.lock();
-            state.domains[0].active_weight_sum = 0.0; // rho = 0.00
-            state.domains[1].active_weight_sum = 0.6; // rho = 0.15 (diff 0.15 <= 0.20)
-            state.domains[2].active_weight_sum = 2.0;
-            state.domains[3].active_weight_sum = 2.0;
-            coordinator.refresh_dispatch_domain_with_offset_locked(&mut state, &item_keep, &[1], 0);
-        }
-        assert_eq!(item_keep.preferred_domain(), Some(1));
-
-        // Warm domain 1 vs alternate domain 2 (offset=1): rho_1 - rho_2 = 0.50 > 0.20 -> spills to idle domain 2.
-        let item_spill = invocation_for("503.graph-bfs-1-0.0.1", "tid-aff-spill");
-        coordinator.cmap.update("503.graph-bfs-1-0.0.1", Chars::CpuWarmTime, 50.0);
-        coordinator.add_item_to_queue(&item_spill, None).unwrap();
-        item_spill.likely_cold.store(false, std::sync::atomic::Ordering::Relaxed);
-        {
-            let mut state = coordinator.state.lock();
-            state.domains[0].active_weight_sum = 2.0;
-            state.domains[1].active_weight_sum = 2.0; // rho = 0.50
-            state.domains[2].active_weight_sum = 0.0; // rho = 0.00 (diff 0.50 > 0.20)
-            state.domains[3].active_weight_sum = 2.0;
-            coordinator.refresh_dispatch_domain_with_offset_locked(&mut state, &item_spill, &[1], 1);
-        }
-        assert_eq!(item_spill.preferred_domain(), Some(2));
-    }
-
-    #[test]
-    fn warm_idle_with_negative_net_gain_admits_without_override() {
-        let config = CongestionPricingConfig {
-            welfare_beta: Some(0.5),
-            rho_knee: Some(0.8),
-            pricing_calibration: Some(CongestionPricingCalibration {
-                freeze_calibration: Some(true),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let coordinator = coordinator(Some(&config));
-        let wave_state = cold_wave_state(1, 1, 0);
-        assert_eq!(wave_state, ColdWaveState::WarmIdle);
-
-        let s_i = 10.0;
-        let rho = 1.35;
-        let mut state = coordinator.state.lock();
-        state.domains[0].active_weight_sum = rho * coordinator.cores_per_domain as f64;
-        let now_ms = state.now_ms();
-        let price = coordinator.compute_welfare_gain(
-            0,
-            0,
-            false,
-            s_i,
-            DEFAULT_T_BOOT,
-            DEFAULT_ETA,
-            s_i.powf(-coordinator.beta),
-            0.0,
-            rho,
-            &mut state,
-            now_ms,
-        );
-
-        assert!(price.delta_sigma > 0.0);
-        assert!(price.warm_toll > price.benefit);
-        assert!(price.net_gain <= 0.0);
-        assert!(!should_use_work_conservation_override(wave_state, price.net_gain));
-        assert!(should_admit_invocation(wave_state, price.net_gain, false));
-    }
-
-    #[test]
-    fn followers_coalesce_and_wake_against_returned_warm_capacity() {
-        let coordinator = coordinator(None);
-        let pioneer = invocation("pioneer");
-        coordinator.add_item_to_queue(&pioneer, None).unwrap();
-        coordinator.pop_queue();
-
-        let mut followers = Vec::new();
-        for n in 2..=4 {
-            let follower = invocation(&format!("follower-{n}"));
-            coordinator.add_item_to_queue(&follower, None).unwrap();
-            assert!(!follower.likely_cold.load(std::sync::atomic::Ordering::Relaxed));
-            followers.push(follower);
-        }
-
-        {
-            let state = coordinator.state.lock();
-            assert_eq!(state.booting_by_fqdn.get("wave.function"), Some(&1));
-            assert_eq!(state.domains.iter().map(|d| d.coalesced_wait_queue.len()).sum::<usize>(), 3);
-            assert!(state.domains.iter().flat_map(|d| d.coalesced_wait_queue.iter()).all(|entry| entry.coalesced && !entry.is_cold));
-        }
-
-        coordinator.on_cold_boot_finished("wave.function", 0);
-        {
-            let state = coordinator.state.lock();
-            assert_eq!(state.booting_by_fqdn.get("wave.function"), None);
-            assert!(followers.iter().all(|f| !f.likely_cold.load(std::sync::atomic::Ordering::Relaxed)));
-        }
-        assert!(coordinator.peek_queue().is_none(), "coalesced followers must remain hidden from dispatch");
-
-        // Simulate the new warm container returning to idle; one idle container
-        // wakes exactly one follower, preventing another cold start.
-        let mut state = coordinator.state.lock();
-        CongestionPricingCoordinator::promote_coalesced_followers(&mut state, "wave.function", 0, 1);
-        assert_eq!(state.ready_queue.len(), 1);
-        assert_eq!(state.domains.iter().map(|d| d.coalesced_wait_queue.len()).sum::<usize>(), 2);
-    }
-
-    #[test]
-    fn ready_queue_prioritizes_short_welfare_tasks_and_preserves_express_lane() {
-        let cmap = worker_char_map();
-        cmap.update("pyaes-0.0.1", Chars::CpuWarmTime, 400.0);
-        cmap.update("hello-0.0.1", Chars::CpuWarmTime, 0.05);
-        let coordinator = CongestionPricingCoordinator::new(
-            None,
-            FineLoadBalancingWeak::new(),
-            cmap,
-            None,
-        );
-
-        let long_a = invocation_for("pyaes-0.0.1", "long-a");
-        let long_b = invocation_for("pyaes-0.0.1", "long-b");
-        let short = invocation_for("hello-0.0.1", "short-1");
-        coordinator.add_item_to_queue(&long_a, None).unwrap();
-        // Mark pioneer boot complete so second pyaes doesn't coalesce; instead use distinct warm-seeded s_i:
-        coordinator.on_cold_boot_finished("pyaes-0.0.1", 0);
-        // Enqueue a second distinct long function so both sit in ready_queue with short
-        let long_other = invocation_for("pyaes-1-0.0.1", "long-other");
-        coordinator.cmap.update("pyaes-1-0.0.1", Chars::CpuWarmTime, 380.0);
-        coordinator.add_item_to_queue(&long_other, None).unwrap();
-        coordinator.add_item_to_queue(&short, None).unwrap();
-        let _ = long_b;
-
-        assert_eq!(coordinator.pop_queue().tid, "short-1");
-        assert_eq!(coordinator.pop_queue().tid, "long-other");
-        assert_eq!(coordinator.pop_queue().tid, "long-a");
-
-        // Verify pure cpu_exec_ms keeps `hello` inside the <2.0ms express lane despite 5ms HTTP RPC wall time.
-        coordinator.on_invocation_completed(&"short-1".to_string(), 0, "hello-0.0.1", 5.2, false, 0.5, Some(0.003));
-        let hello_s_i = coordinator.state.lock().fn_state.get("hello-0.0.1").unwrap().s_i;
-        assert!(hello_s_i < 2.0, "hello s_i={hello_s_i} should stay < 2.0ms");
-    }
-
-    #[test]
-    fn exact_tid_reservation_prevents_weight_drift_and_abort_leaks() {
-        let coordinator = coordinator(None);
-        let p = invocation("p1");
-        coordinator.add_item_to_queue(&p, None).unwrap();
-        let _ = coordinator.pop_queue();
-        assert!(coordinator.state.lock().domains[0].active_weight_sum > 0.0);
-
-        // Even when s_i changes substantially on completion, active_weight_sum returns to 0.0.
-        coordinator.on_invocation_completed(&"p1".to_string(), 0, "wave.function", 500.0, true, 0.9, Some(450.0));
-        let state = coordinator.state.lock();
-        assert!(state.domains[0].active_weight_sum.abs() < 1e-12);
-        assert_eq!(state.domains[0].cold_booting, 0);
-        assert!(state.active_admissions.is_empty());
-    }
-
-    #[test]
-    fn rho_knee_delays_warm_stretch_and_marginal_toll() {
-        let config = CongestionPricingConfig {
-            rho_knee: Some(1.05),
-            pricing_calibration: Some(CongestionPricingCalibration {
-                freeze_calibration: Some(true),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let coordinator = coordinator(Some(&config));
-        assert_eq!(coordinator.sigma_warm(1.04, 1.0), 1.0);
-        assert_eq!(coordinator.sigma_warm(1.05, 1.0), 1.0);
-        assert!(coordinator.sigma_warm(1.06, 1.0) > 1.0);
-        assert_eq!(coordinator.delta_sigma_warm(1.02, 0.08, 4.0, 1.0), 0.0);
-        assert!(coordinator.delta_sigma_warm(1.04, 0.08, 4.0, 1.0) > 0.0);
-    }
-
-    #[test]
-    fn virtual_deadline_prevents_long_job_starvation_and_lifo_inversion() {
-        let cmap = worker_char_map();
-        cmap.update("pyaes-0.0.1", Chars::CpuWarmTime, 560.0);
-        cmap.update("503.graph-bfs-0.0.1", Chars::CpuWarmTime, 60.0);
-        let cfg = CongestionPricingConfig {
-            cold_wave_coalescing: Some(false),
-            ..Default::default()
-        };
-        let coordinator = CongestionPricingCoordinator::new(
-            Some(&cfg),
-            FineLoadBalancingWeak::new(),
-            cmap,
-            None,
-        );
-
-        let pyaes_1 = invocation_for("pyaes-0.0.1", "pyaes-1");
-        let pyaes_2 = invocation_for("pyaes-0.0.1", "pyaes-2");
-        let bfs_concurrent = invocation_for("503.graph-bfs-0.0.1", "bfs-concurrent");
-        coordinator.add_item_to_queue(&pyaes_1, None).unwrap();
-        coordinator.add_item_to_queue(&pyaes_2, None).unwrap();
-        coordinator.add_item_to_queue(&bfs_concurrent, None).unwrap();
-
-        // Simulate 350ms passing before a later graph-bfs arrives: aged pyaes_1/pyaes_2
-        // (slack capped at 280ms) must dispatch ahead of bfs_late (350ms + 30ms = 380ms).
-        std::thread::sleep(std::time::Duration::from_millis(350));
-        let bfs_late = invocation_for("503.graph-bfs-0.0.1", "bfs-late");
-        coordinator.add_item_to_queue(&bfs_late, None).unwrap();
-
-        assert_eq!(coordinator.pop_queue().tid, "bfs-concurrent");
-        assert_eq!(coordinator.pop_queue().tid, "pyaes-1");
-        assert_eq!(coordinator.pop_queue().tid, "pyaes-2");
-        assert_eq!(coordinator.pop_queue().tid, "bfs-late");
-    }
-
-    #[test]
-    fn pop_queue_refreshes_preferred_domain_and_transfers_weight() {
-        let cmap = worker_char_map();
-        cmap.update("503.graph-bfs-0.0.1", Chars::CpuWarmTime, 50.0);
-        let coordinator = CongestionPricingCoordinator::new(
-            None,
-            FineLoadBalancingWeak::new(),
-            cmap,
-            None,
-        );
-        // Simulate 4 domains without needing live eBPF FineLoadBalancing.
-        {
-            let mut state = coordinator.state.lock();
-            state.domains = (0..4).map(|d| DomainState::new(d as SchedGroupID)).collect();
-        }
-
-        let item = invocation_for("503.graph-bfs-0.0.1", "tid-refresh");
-        coordinator.add_item_to_queue(&item, None).unwrap();
-        let initial_dom = item.preferred_domain().unwrap() as usize;
-        let added_w = coordinator
-            .state
-            .lock()
-            .active_admissions
-            .get(&item.tid)
-            .unwrap()
-            .added_weight;
-        assert!(added_w > 0.0);
-
-        // Make initial_dom heavily loaded and all other domains idle before pop_queue
-        // so any Po2 alternate deterministically moves off initial_dom.
-        {
-            let mut state = coordinator.state.lock();
-            state.domains[initial_dom].active_weight_sum += 10.0;
-        }
-
-        let popped = coordinator.pop_queue();
-        let new_dom = popped.preferred_domain().unwrap() as usize;
-        assert_ne!(new_dom, initial_dom);
-        let state = coordinator.state.lock();
-        assert_eq!(state.active_admissions.get(&popped.tid).unwrap().domain_id, new_dom);
-        assert!((state.domains[initial_dom].active_weight_sum - 10.0).abs() < 1e-9);
-        assert!((state.domains[new_dom].active_weight_sum - added_w).abs() < 1e-9);
     }
 }

@@ -1,8 +1,15 @@
 use super::queueing::{
-    avail_scale::AvailableScalingQueue, cold_priority::ColdPriorityQueue, fcfs::FCFSQueue, minheap::MinHeapQueue,
-    minheap_ed::MinHeapEDQueue, minheap_iat::MinHeapIATQueue, queueless::Queueless, congestion_pricing::CongestionPricingCoordinator,
+    avail_scale::AvailableScalingQueue,
+    cold_priority::ColdPriorityQueue,
+    congestion_pricing::{
+        CongestionPricingTimingSample, DomainId, PostedPriceCoordinator, PostedPriceInvocationLifecycle,
+    },
+    fcfs::FCFSQueue,
+    minheap::MinHeapQueue,
+    minheap_ed::MinHeapEDQueue,
+    minheap_iat::MinHeapIATQueue,
+    queueless::Queueless,
 };
-use super::queueing::congestion_pricing::CongestionPricingTimingSample;
 use super::queueing::{DeviceQueue, EnqueuedInvocation, InvokerCpuQueuePolicy};
 use crate::services::containers::{
     containermanager::ContainerManager,
@@ -12,7 +19,7 @@ use crate::services::containers::{
 use crate::services::invocation::energy_limiter::EnergyLimiter;
 use crate::services::invocation::{invoke_on_container, QueueLoad};
 use crate::services::{registration::RegisteredFunction, resources::cpu::CpuResourceTracker};
-use crate::worker_api::worker_config::InvocationConfig;
+use crate::worker_api::worker_config::{CpuQueuePolicy, InvocationConfig};
 use anyhow::Result;
 use iluvatar_library::char_map::{Chars, WorkerCharMap};
 use iluvatar_library::clock::{get_global_clock, now, Clock};
@@ -23,8 +30,12 @@ use iluvatar_library::{
     types::Utilization,
 };
 use parking_lot::Mutex;
+use std::str::FromStr;
 use std::{
-    sync::{atomic::AtomicU32, Arc},
+    sync::{
+        atomic::{AtomicU32, AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tokio::sync::{mpsc::UnboundedSender, Notify};
@@ -38,13 +49,14 @@ lazy_static::lazy_static! {
 }
 
 pub struct CpuQueueingInvoker {
-    congestion_pricing: Option<Arc<CongestionPricingCoordinator>>,
+    posted_price: Option<Arc<PostedPriceCoordinator>>,
     cont_manager: Arc<ContainerManager>,
     invocation_config: Arc<InvocationConfig>,
     cmap: WorkerCharMap,
     clock: Clock,
     cold_starting: AtomicU32,
     running: AtomicU32,
+    fallback_rr: AtomicU64,
     last_memory_warning: Mutex<Instant>,
     cpu: Arc<CpuResourceTracker>,
     _cpu_thread: tokio::task::JoinHandle<()>,
@@ -77,10 +89,11 @@ impl CpuQueueingInvoker {
         );
         let (bypass_thread, bypass_tx, bypass_rx) = Self::bypass_thread();
 
-        let (queue, congestion_pricing) = Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, &cpu, tid)?;
+        let (queue, posted_price) =
+            Self::get_invoker_queue(&invocation_config, &cmap, &cont_manager, &cpu, tid)?;
 
         let svc = Arc::new(CpuQueueingInvoker {
-            congestion_pricing,
+            posted_price,
             queue,
             cont_manager,
             invocation_config,
@@ -95,6 +108,7 @@ impl CpuQueueingInvoker {
             clock: get_global_clock(tid)?,
             running: AtomicU32::new(0),
             cold_starting: AtomicU32::new(0),
+            fallback_rr: AtomicU64::new(0),
             last_memory_warning: Mutex::new(now()),
             device_tput: DeviceTput::boxed(),
         });
@@ -113,54 +127,156 @@ impl CpuQueueingInvoker {
         cont_manager: &Arc<ContainerManager>,
         cpu: &Arc<CpuResourceTracker>,
         tid: &TransactionId,
-    ) -> Result<(Arc<dyn InvokerCpuQueuePolicy>, Option<Arc<CongestionPricingCoordinator>>)> {
+    ) -> Result<(Arc<dyn InvokerCpuQueuePolicy>, Option<Arc<PostedPriceCoordinator>>)> {
         if let Some(pol) = invocation_config.queue_policies.get(&Compute::CPU) {
-            match pol.as_str() {
-                "none" => Ok((Queueless::new()?, None)),
-                "fcfs" => Ok((FCFSQueue::new(cont_manager.clone(), cmap.clone())?, None)),
-                "minheap" => Ok((MinHeapQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
-                "minheap_ed" => Ok((MinHeapEDQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
-                "minheap_iat" => Ok((MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
-                "cold_pri" => Ok((ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?, None)),
-                "scaling" => Ok((AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?, None)),
-                "congestion_pricing" => {
-                    let flb_weak = cpu.fineloadbalancing().map(|flb| Arc::downgrade(&flb)).unwrap_or_default();
-                    let coordinator = CongestionPricingCoordinator::new(
-                        invocation_config.congestion_pricing.as_deref(),
+            match CpuQueuePolicy::from_str(pol.as_str())? {
+                CpuQueuePolicy::None => Ok((Queueless::new()?, None)),
+                CpuQueuePolicy::Fcfs => Ok((FCFSQueue::new(cont_manager.clone(), cmap.clone())?, None)),
+                CpuQueuePolicy::MinHeap => Ok((MinHeapQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
+                CpuQueuePolicy::MinheapEd => Ok((MinHeapEDQueue::new(tid, cmap.clone(), cont_manager.clone())?, None)),
+                CpuQueuePolicy::MinheapIat => {
+                    Ok((MinHeapIATQueue::new(tid, cmap.clone(), cont_manager.clone())?, None))
+                },
+                CpuQueuePolicy::ColdPriority => {
+                    Ok((ColdPriorityQueue::new(cont_manager.clone(), tid, cmap.clone())?, None))
+                },
+                CpuQueuePolicy::Scaling => {
+                    Ok((AvailableScalingQueue::new(cont_manager.clone(), tid, cmap.clone())?, None))
+                },
+                CpuQueuePolicy::PostedPrice => {
+                    let flb_weak = cpu
+                        .fineloadbalancing()
+                        .map(|flb| Arc::downgrade(&flb))
+                        .unwrap_or_default();
+                    let fallback_cores = (cpu.cores.round() as u32).max(1);
+                    let coordinator = PostedPriceCoordinator::new_with_fallback_cores(
+                        invocation_config.posted_price_config(),
                         flb_weak,
                         cmap.clone(),
                         Some(cont_manager.clone()),
+                        fallback_cores,
                     );
                     Ok((coordinator.clone(), Some(coordinator)))
                 },
-                unknown => anyhow::bail!("Unknown CPU queueing policy '{}'", unknown),
             }
         } else {
             anyhow::bail!("No queue policy listed for compute '{:?}'", Compute::CPU)
         }
     }
 
-    /// Wait on the Notify object for the queue to be available again
+    /// Wait on the Notify object for the queue or domain capacity to be available again
     async fn cpu_wait_on_queue(self: &Arc<Self>, tid: &TransactionId) {
         self.signal.notified().await;
         debug!(tid = tid, "Invoker waken up by signal");
     }
 
-    /// Check the invocation queue, running things when there are sufficient resources
+    fn round_robin_domains(&self) -> Vec<DomainId> {
+        let n = self.cpu.num_domains().max(1);
+        let start = (self.fallback_rr.fetch_add(1, Ordering::Relaxed) as usize) % n;
+        (0..n).map(|off| (start + off) % n).collect()
+    }
+
+    /// Late-binding dispatch loop:
+    /// 1. Under `posted_price`, checks free capacity before popping so queued items stay sorted
+    ///    by `w_0 = s_i^(-beta)` and deferred cold starts never spin-block or HOL-block `WarmIdle`.
+    /// 2. Acquires only a brief read lock on `PostedPriceCoordinator` to rank `[d_(1), ..., d_(D)]`,
+    ///    releasing the lock BEFORE calling `acquire_cores(&ranked_domains)`.
+    /// 3. Immediately attributes `actual_domain` 1:1 on `acquire_cores` return.
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, _tid), fields(tid=_tid)))]
     async fn monitor_queue(self: &Arc<Self>, _tid: &TransactionId) {
+        if let Some(pp) = &self.posted_price {
+            loop {
+                pp.refresh_pelt_if_due();
+
+                if !self.cpu.has_free_capacity(1) {
+                    break;
+                }
+
+                let Some(item) = pp.pop_dispatchable() else {
+                    break;
+                };
+
+                #[cfg(feature = "power_cap")]
+                if !self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
+                    debug!(tid = item.tid, "Blocking invocation due to power overload");
+                    pp.requeue_front(&item);
+                    break;
+                }
+
+                // Touchpoint 2: Brief read-lock ranking, released BEFORE `acquire_cores`.
+                let (ranked_domains, snapshot) = pp.rank_for_item(&item);
+
+                match self
+                    .cpu
+                    .acquire_cores(&item.registration, &item.tid, &ranked_domains)
+                    .await
+                {
+                    Ok(Some((actual_domain, cpu_permit))) => {
+                        let mut permits: Vec<Box<dyn Drop + Send>> = vec![Box::new(cpu_permit)];
+                        if self.invocation_config.cold_concurrent > 0
+                            && self.cpu.fine_scheduling_enabled()
+                            && item.likely_cold.load(Ordering::Relaxed)
+                        {
+                            let Some(cold_permit) = self.cpu.reserve_likely_cold(
+                                &item.tid,
+                                &item.registration.fqdn,
+                                self.invocation_config.cold_concurrent,
+                            ) else {
+                                drop(permits);
+                                pp.requeue_front(&item);
+                                break;
+                            };
+                            permits.push(Box::new(cold_permit));
+                        }
+
+                        if !item.lock() {
+                            drop(permits);
+                            continue;
+                        }
+
+                        // Touchpoint 3: 1:1 attribution to `actual_domain` + dispatch telemetry.
+                        let lifecycle = pp.begin_dispatch(
+                            &item.tid,
+                            &item.registration.fqdn,
+                            actual_domain,
+                            snapshot.as_ref(),
+                            ranked_domains.first().copied(),
+                        );
+                        self.spawn_tokio_worker(
+                            self.clone(),
+                            item,
+                            Box::new(permits),
+                            actual_domain,
+                            Some(lifecycle),
+                        );
+                    },
+                    Ok(None) => {
+                        pp.requeue_front(&item);
+                        break;
+                    },
+                    Err(e) => {
+                        error!(
+                            tid = item.tid,
+                            error = %e,
+                            "CPU Resource Monitor `acquire_cores` returned an error!"
+                        );
+                        item.mark_error(&e.into());
+                    },
+                }
+            }
+            return;
+        }
+
+        // Standard path for non-pricing queues (`fcfs`, `minheap`, etc.):
+        // pass `&[]` so `fineloadbalancing.lbpolicy` (`least_loaded`, `power_of_two`, etc.) selects the domain.
         while let Some(_peek_item) = self.queue.peek_queue() {
             let item = self.queue.pop_queue();
             loop {
-                if let Some(permit) = self.acquire_resources_to_run(&item).await {
+                if let Some((actual_domain, permit)) = self.acquire_resources_to_run(&item, &[]).await {
                     if !item.lock() {
-                        // already acquired
-                        if let Some(cp) = &self.congestion_pricing {
-                            cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, false);
-                        }
                         break;
                     }
-                    self.spawn_tokio_worker(self.clone(), item, permit);
+                    self.spawn_tokio_worker(self.clone(), item, permit, actual_domain, None);
                     break;
                 } else {
                     tokio::time::sleep(Duration::from_millis(self.invocation_config.queue_sleep_ms.max(1))).await;
@@ -220,69 +336,77 @@ impl CpuQueueingInvoker {
         (handle, tx, del_tx)
     }
 
-    /// Returns an owned permit if there are sufficient resources to run a function
-    /// A return value of [None] means the resources failed to be acquired
-    async fn acquire_resources_to_run(&self, item: &Arc<EnqueuedInvocation>) -> Option<Box<dyn Drop + Send>> {
+    async fn acquire_resources_to_run(
+        &self,
+        item: &Arc<EnqueuedInvocation>,
+        ranked_domains: &[DomainId],
+    ) -> Option<(DomainId, Box<dyn Drop + Send>)> {
         debug!(tid = item.tid, "checking resources");
         #[cfg(feature = "power_cap")]
         if !self.energy.ok_run_fn(&self.cmap, &item.registration.fqdn) {
             debug!(tid = item.tid, "Blocking invocation due to power overload");
             return None;
         }
-        let mut ret = vec![];
+        let mut ret: Vec<Box<dyn Drop + Send>> = vec![];
         match self
             .cpu
-            .acquire_cores_with_preferred(&item.registration, &item.tid, item.preferred_domain())
+            .acquire_cores(&item.registration, &item.tid, ranked_domains)
             .await
         {
-            Ok(c) => {
-                if c.is_some() {
-                    ret.push(Box::new(c.unwrap()) as Box<dyn Drop + Send>);
-                    if self.invocation_config.cold_concurrent > 0
-                        && self.cpu.fine_scheduling_enabled()
-                        && item.likely_cold.load(std::sync::atomic::Ordering::Relaxed)
-                    {
-                        let Some(cold_permit) = self.cpu.reserve_likely_cold(
-                            &item.tid,
-                            &item.registration.fqdn,
-                            self.invocation_config.cold_concurrent,
-                        ) else {
-                            warn!(
-                                tid = item.tid,
-                                fqdn = item.registration.fqdn,
-                                limit = self.invocation_config.cold_concurrent,
-                                "Throttling likely-cold invocation due to per-domain cold concurrency limit"
-                            );
-                            drop(ret);
-                            return None;
-                        };
-                        ret.push(Box::new(cold_permit) as Box<dyn Drop + Send>);
-                    }
-                } else {
-                    return None;
+            Ok(Some((actual_domain, permit))) => {
+                ret.push(Box::new(permit));
+                if self.invocation_config.cold_concurrent > 0
+                    && self.cpu.fine_scheduling_enabled()
+                    && item.likely_cold.load(Ordering::Relaxed)
+                {
+                    let Some(cold_permit) = self.cpu.reserve_likely_cold(
+                        &item.tid,
+                        &item.registration.fqdn,
+                        self.invocation_config.cold_concurrent,
+                    ) else {
+                        warn!(
+                            tid = item.tid,
+                            fqdn = item.registration.fqdn,
+                            limit = self.invocation_config.cold_concurrent,
+                            "Throttling likely-cold invocation due to per-domain cold concurrency limit"
+                        );
+                        drop(ret);
+                        return None;
+                    };
+                    ret.push(Box::new(cold_permit));
                 }
+                Some((actual_domain, Box::new(ret)))
             },
+            Ok(None) => None,
             Err(_) => {
                 error!(
                     tid = item.tid,
                     "CPU Resource Monitor `acquire_cores` returned an error!"
                 );
-                return None;
+                None
             },
-        };
-        Some(Box::new(ret))
+        }
     }
 
     /// Runs the specific invocation inside a new tokio worker thread
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, item, permit), fields(tid=item.tid)))]
-    fn spawn_tokio_worker(&self, invoker_svc: Arc<Self>, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, invoker_svc, item, permit, lifecycle), fields(tid=item.tid)))]
+    fn spawn_tokio_worker(
+        &self,
+        invoker_svc: Arc<Self>,
+        item: Arc<EnqueuedInvocation>,
+        permit: Box<dyn Drop + Send>,
+        actual_domain: DomainId,
+        lifecycle: Option<PostedPriceInvocationLifecycle>,
+    ) {
         #[cfg(feature = "full_spans")]
         {
             let span = item.span.clone();
             let _handle = tokio_spawn_thread(
                 async move {
                     debug!(tid = item.tid, "Launching invocation thread for queued item");
-                    invoker_svc.invocation_worker_thread(item, permit).await;
+                    invoker_svc
+                        .invocation_worker_thread(item, permit, actual_domain, lifecycle)
+                        .await;
                 }
                 .instrument(span),
             );
@@ -291,17 +415,22 @@ impl CpuQueueingInvoker {
         {
             let _handle = tokio_spawn_thread(async move {
                 debug!(tid = item.tid, "Launching invocation thread for queued item");
-                invoker_svc.invocation_worker_thread(item, permit).await;
+                invoker_svc
+                    .invocation_worker_thread(item, permit, actual_domain, lifecycle)
+                    .await;
             });
         }
     }
 
-    /// Handle executing an invocation, plus account for its success or failure
-    /// On success, the results are moved to the pointer and it is signaled
-    /// On failure, [Invoker::handle_invocation_error] is called
-    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, permit), fields(tid=item.tid)))]
-    async fn invocation_worker_thread(&self, item: Arc<EnqueuedInvocation>, permit: Box<dyn Drop + Send>) {
-        match self.invoke(&item, Some(permit)).await {
+    #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, permit, lifecycle), fields(tid=item.tid)))]
+    async fn invocation_worker_thread(
+        &self,
+        item: Arc<EnqueuedInvocation>,
+        permit: Box<dyn Drop + Send>,
+        actual_domain: DomainId,
+        lifecycle: Option<PostedPriceInvocationLifecycle>,
+    ) {
+        match self.invoke(&item, Some(permit), actual_domain, lifecycle).await {
             Ok((result, duration, compute, state, cpu_utilization)) => {
                 item.mark_successful(result, duration, compute, state, cpu_utilization)
             },
@@ -309,10 +438,6 @@ impl CpuQueueingInvoker {
         };
     }
 
-    /// Handle an error with the given enqueued invocation
-    /// By default re-enters item if a resource exhaustion error occurs [InsufficientMemoryError]
-    ///   Calls [Self::add_item_to_queue] to do this
-    /// Other errors result in exit of invocation if [InvocationConfig.attempts] are made
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item, cause), fields(tid=item.tid)))]
     fn handle_invocation_error(&self, item: Arc<EnqueuedInvocation>, cause: anyhow::Error) {
         if let Some(_mem_err) = cause.downcast_ref::<InsufficientMemoryError>() {
@@ -323,7 +448,7 @@ impl CpuQueueingInvoker {
             }
             item.unlock();
             match self.queue.add_item_to_queue(&item, Some(0)) {
-                Ok(_) => self.signal.notify_waiters(),
+                Ok(_) => self.signal.notify_one(),
                 Err(e) => {
                     error!(tid=item.tid, error=%e, "Failed to re-queue item in CPU queue after memory exhaustion");
                     item.mark_error(&e);
@@ -336,7 +461,7 @@ impl CpuQueueingInvoker {
             error!(tid=item.tid, error=%cause, "Encountered unknown error while trying to run queued invocation");
             if item.increment_error_retry(&cause, self.invocation_config.retries) {
                 match self.queue.add_item_to_queue(&item, Some(0)) {
-                    Ok(_) => self.signal.notify_waiters(),
+                    Ok(_) => self.signal.notify_one(),
                     Err(e) => {
                         error!(tid=item.tid, error=%e, "Failed to re-queue item after attempt");
                         item.mark_error(&e);
@@ -347,21 +472,17 @@ impl CpuQueueingInvoker {
     }
 
     #[cfg_attr(feature = "full_spans", tracing::instrument(level="debug", skip(self, item), fields(tid=item.tid)))]
-    /// Run an invocation, bypassing any concurrency restrictions
-    /// A return value of `false` means that the function would have run cold, and the caller should enqueue it instead
-    /// `true` means the invocation was already run successfully
     async fn bypassing_invoke(&self, item: &Arc<EnqueuedInvocation>) -> Result<bool> {
         info!(tid = item.tid, "Bypassing internal invocation starting");
         if self.cpu.fine_scheduling_enabled() {
             return Ok(false);
         }
-        // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now();
         let ctr_lock = match self
             .cont_manager
             .acquire_container(&item.registration, &item.tid, Compute::CPU)
         {
-            EventualItem::Future(_) => return Ok(false), // no bypass
+            EventualItem::Future(_) => return Ok(false),
             EventualItem::Now(n) => n?,
         };
         match invoke_on_container(
@@ -388,77 +509,98 @@ impl CpuQueueingInvoker {
         Ok(true)
     }
 
-    /// acquires a container and invokes the function inside it
-    /// returns the json result and duration as a tuple
-    /// The optional [permit] is dropped to return held resources
-    /// Returns
-    /// [ParsedResult] A result representing the function output, the user result plus some platform tracking
-    /// [Duration]: The E2E latency between the worker and the container
-    /// [Compute]: Compute the invocation was run on
-    /// [ContainerState]: State the container was in for the invocation
-    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit), fields(tid=item.tid)))]
+    /// Acquires a container on `actual_domain`, updates `container.last_domain` and the BPF
+    /// cgroup assignment map with `(actual_domain, s_i, w_0)`, executes the function, and
+    /// releases lifecycle guards + core permits cleanly on all exit paths.
+    #[cfg_attr(feature = "full_spans", tracing::instrument(skip(self, item, permit, lifecycle), fields(tid=item.tid)))]
     async fn invoke<'a>(
         &'a self,
         item: &'a Arc<EnqueuedInvocation>,
         permit: Option<Box<dyn Drop + Send>>,
+        actual_domain: DomainId,
+        mut lifecycle: Option<PostedPriceInvocationLifecycle>,
     ) -> Result<(ParsedResult, Duration, Compute, ContainerState, Utilization)> {
         debug!(tid = item.tid, "Internal invocation starting");
         let (pricing_queue_ms, timing_started_at) = self
-            .congestion_pricing
+            .posted_price
             .as_ref()
-            .map(|cp| cp.take_invocation_timing(&item.tid))
+            .map(|pp| pp.take_invocation_timing(&item.tid))
             .unwrap_or_else(|| (0.0, std::time::Instant::now()));
-        // take run time now because we may have to wait to get a container
         let remove_time = self.clock.now_str()?;
 
         let start = now();
         let container_acquire_started_at = std::time::Instant::now();
-        let acquire_result = match self
-            .cont_manager
-            .acquire_container(&item.registration, &item.tid, Compute::CPU)
-        {
+        let acquire_result = match self.cont_manager.acquire_container_for_domain(
+            &item.registration,
+            &item.tid,
+            Compute::CPU,
+            Some(actual_domain),
+        ) {
             EventualItem::Future(f) => {
-                self.cold_starting.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                // Ensure `on_boot_start` is active if an invocation unexpectedly cold-starts.
+                if let (Some(pp), Some(lc)) = (&self.posted_price, lifecycle.as_mut()) {
+                    if lc.boot_guard.is_none() {
+                        let fp = lc.dispatch_guard.footprint_used();
+                        lc.boot_guard = Some(pp.start_boot_guard_with_footprint(
+                            actual_domain,
+                            &item.registration.fqdn,
+                            fp,
+                        ));
+                    }
+                }
+                self.cold_starting.fetch_add(1, Ordering::Relaxed);
                 let result = f.await;
-                self.cold_starting.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                self.cold_starting.fetch_sub(1, Ordering::Relaxed);
+                if let Some(lc) = lifecycle.as_mut() {
+                    if let Some(mut bg) = lc.boot_guard.take() {
+                        bg.finish_now();
+                    }
+                }
                 result
             },
-            EventualItem::Now(n) => n,
+            EventualItem::Now(n) => {
+                // Warm hit: end any speculative boot reservation immediately.
+                if let Some(lc) = lifecycle.as_mut() {
+                    if let Some(mut bg) = lc.boot_guard.take() {
+                        bg.finish_now();
+                    }
+                }
+                n
+            },
         };
         let ctr_lock = match acquire_result {
             Ok(lock) => lock,
             Err(error) => {
-                if let Some(cp) = &self.congestion_pricing {
-                    cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, true);
-                }
-                self.signal.notify_waiters();
+                drop(lifecycle);
+                drop(permit);
+                self.signal.notify_one();
                 return Err(error);
             },
         };
+
+        // Touchpoint 3: Update container's app-level `last_domain` and BPF cgroup assignment map.
+        ctr_lock.container.set_last_domain(Some(actual_domain));
+        let (s_i_ms, w_0) = lifecycle
+            .as_ref()
+            .map(|lc| (Some(lc.s_i_ms), Some(lc.w_0)))
+            .unwrap_or((None, None));
         if let Err(error) = self.cpu.cgroup_assigned_to_function(
             ctr_lock.container.cgroup_id(),
             &item.tid,
             item.registration.clone(),
+            Some(actual_domain),
+            s_i_ms,
+            w_0,
         ) {
-            let preferred_dom = item.preferred_domain().map(|d| d as usize).unwrap_or(0);
             drop(ctr_lock);
-            if let Some(cp) = &self.congestion_pricing {
-                cp.on_invocation_aborted(&item.tid, &item.registration.fqdn, false);
-                cp.on_warm_container_available(&item.registration.fqdn, preferred_dom);
-            }
-            self.signal.notify_waiters();
-            return Err(error.into());
+            drop(lifecycle);
+            drop(permit);
+            self.signal.notify_one();
+            return Err(error);
         }
-        let assigned_domain_id = self.cpu.fineloadbalancing()
-            .and_then(|flb| flb.stats.tid_map.get(&item.tid).map(|v| *v as usize))
-            .unwrap_or(0);
-        if item.likely_cold.load(std::sync::atomic::Ordering::Relaxed) {
-            if let Some(cp) = &self.congestion_pricing {
-                cp.on_cold_boot_finished(&item.registration.fqdn, assigned_domain_id);
-            }
-        }
+
         let container_acquire_ms = container_acquire_started_at.elapsed().as_secs_f64() * 1000.0;
-        self.running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.running.fetch_add(1, Ordering::Relaxed);
         let result = invoke_on_container(
             &item.registration,
             &item.json_args,
@@ -478,43 +620,54 @@ impl CpuQueueingInvoker {
             .as_ref()
             .ok()
             .map(|(data, _, _, _, _)| data.duration_sec * 1000.0);
-        // don't resolve Result of invoke, handle clean up and return as-is
-        self.running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        self.running.fetch_sub(1, Ordering::Relaxed);
         self.cpu
             .cgroup_released_for_function(ctr_lock.container.cgroup_id(), &item.tid, item.registration.clone());
 
-        if let Some(cp) = &self.congestion_pricing {
+        let exec_end_rho = self
+            .posted_price
+            .as_ref()
+            .map(|pp| pp.predict_domain(actual_domain).effective_rho)
+            .unwrap_or(0.0);
+        let dispatch_rho = lifecycle.as_ref().map(|lc| lc.dispatch_rho).unwrap_or(0.0);
+        if let Some(mut lc) = lifecycle.take() {
+            lc.dispatch_guard.complete_now();
+        }
+        if let Some(pp) = &self.posted_price {
+            if let Ok((_, _, _, _, cpu_util_pct)) = &result {
+                if *cpu_util_pct > 0
+                    || ctr_lock.container.container_type() == iluvatar_library::types::Isolation::DOCKER
+                {
+                    let cpu_util_cores = (*cpu_util_pct as f64 / 100.0)
+                        .clamp(0.05, pp.domain_cores(actual_domain) as f64);
+                    pp.on_util_sample(
+                        actual_domain,
+                        &item.registration.fqdn,
+                        cpu_util_cores,
+                        dispatch_rho.max(exec_end_rho),
+                    );
+                }
+            }
             let wall_exec_ms = now().duration_since(start).as_secs_f64() * 1000.0;
             let is_cold = matches!(result, Ok((_, _, _, ContainerState::Cold, _)));
-            let flb = self.cpu.fineloadbalancing();
-            let domain_id = assigned_domain_id;
-            let rho_obs = flb.as_ref()
-                .and_then(|f| f.domain_pelt_like_utilization_percent(domain_id as iluvatar_finesched::SchedGroupID).ok().flatten())
-                .map(|p| p / 100.0)
-                .unwrap_or(1.0);
-            cp.on_invocation_completed(
-                &item.tid,
-                domain_id,
+            pp.record_execution_observation(
+                actual_domain,
                 &item.registration.fqdn,
                 wall_exec_ms,
                 is_cold,
-                rho_obs,
                 exec_ms,
             );
         }
 
-        // drop container and return to pool before releasing resource permit
-        // otherwise it leads to unnecassary cold_starts
+        // Return container to warm pool before releasing CPU permit and waking monitor_queue.
         drop(ctr_lock);
         drop(permit);
-        if let Some(cp) = &self.congestion_pricing {
-            cp.on_warm_container_available(&item.registration.fqdn, assigned_domain_id);
-        }
-        self.signal.notify_waiters();
-        if let (Some(cp), Some(exec_ms)) = (&self.congestion_pricing, exec_ms) {
+        self.signal.notify_one();
+
+        if let (Some(pp), Some(exec_ms)) = (&self.posted_price, exec_ms) {
             let total_e2e_ms = timing_started_at.elapsed().as_secs_f64() * 1000.0;
             let post_overhead_ms = total_e2e_ms - pricing_queue_ms - container_acquire_ms - exec_ms;
-            cp.record_invocation_timing(
+            pp.record_invocation_timing(
                 &item.tid,
                 &item.registration.fqdn,
                 CongestionPricingTimingSample {
@@ -554,8 +707,6 @@ impl DeviceQueue for CpuQueueingInvoker {
     }
     fn est_completion_time(&self, reg: &Arc<RegisteredFunction>, tid: &TransactionId) -> (f64, f64) {
         let qt = if self.queue_len() <= self.cpu.available_cores() {
-            // If Q is smaller than num of avail CPUs, we don't really have queuing,
-            // just a race from item being added recently and not popped
             0.0
         } else {
             self.queue.est_queue_time() / f64::min(self.cpu.cores, self.queue_len() as f64)
@@ -574,16 +725,16 @@ impl DeviceQueue for CpuQueueingInvoker {
         }
         debug!(tid = item.tid, "CPU queue item");
         self.queue.add_item_to_queue(item, None)?;
-        self.signal.notify_waiters();
+        self.signal.notify_one();
         Ok(())
     }
 
     fn running(&self) -> u32 {
-        self.running.load(std::sync::atomic::Ordering::Relaxed)
+        self.running.load(Ordering::Relaxed)
     }
 
     fn cold_starting(&self) -> u32 {
-        self.cold_starting.load(std::sync::atomic::Ordering::Relaxed)
+        self.cold_starting.load(Ordering::Relaxed)
     }
 
     fn warm_hit_probability(&self, reg: &Arc<RegisteredFunction>, _iat: f64) -> f64 {

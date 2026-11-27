@@ -23,7 +23,6 @@ use iluvatar_library::transaction::TransactionId;
 use iluvatar_library::types::DroppableMovableTrait;
 use iluvatar_library::{bail_error, threading};
 use parking_lot::{Mutex, RwLock};
-use rand::Rng;
 use std::collections::BTreeMap;
 use std::fs::read_to_string;
 use std::path::PathBuf;
@@ -44,13 +43,15 @@ const SCHED_EXT_POLICY: libc::c_int = 7;
 static NEXT_FINE_SCHED_INVOCATION_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct DomainCpuPermit {
-    _cpu_permit: OwnedSemaphorePermit,
+    pub domain_id: usize,
+    _cpu_permit: Option<OwnedSemaphorePermit>,
     callback: Callback,
 }
 
 impl DomainCpuPermit {
-    pub fn new(cpu_permit: OwnedSemaphorePermit, callback: Callback) -> Self {
+    pub fn new(domain_id: usize, cpu_permit: Option<OwnedSemaphorePermit>, callback: Callback) -> Self {
         DomainCpuPermit {
+            domain_id,
             _cpu_permit: cpu_permit,
             callback,
         }
@@ -181,57 +182,83 @@ impl CpuResourceTracker {
     ) -> Result<Option<OwnedSemaphorePermit>, tokio::sync::TryAcquireError> {
         debug!(cpu_sem =? self.concurrency_semaphore, "CPUResourceMananger");
         if let Some(sem) = &self.concurrency_semaphore {
-            if self.assign_domain_to_function_request(tid, reg.clone()).is_ok() {
-                return match sem.clone().try_acquire_many_owned(reg.cpus) {
-                    Ok(p) => Ok(Some(p)),
-                    Err(e) => {
-                        self.release_domain_for_request(tid, reg.clone());
-                        Err(e)
-                    },
-                };
+            let permit = sem.clone().try_acquire_many_owned(reg.cpus)?;
+            if self.try_assign_domain_from_ranked(tid, &reg, &[]).is_some() {
+                return Ok(Some(permit));
             }
         }
         Ok(None)
     }
 
-    /// Blocks until an owned permit can be acquired for the function to run on its registered number of cores.
-    /// If the semaphore is [None], then no permits are being tracked.
+    /// True if at least `cpus` permits are currently free both in the worker semaphore
+    /// and on at least one FineSched domain.
+    pub fn has_free_capacity(&self, cpus: u32) -> bool {
+        if let Some(sem) = &self.concurrency_semaphore {
+            if sem.available_permits() < cpus as usize {
+                return false;
+            }
+        }
+        if let Some(flb) = &self.fineloadbalancing {
+            let domains = flb.system_domains.immutable_clone();
+            if !domains.is_empty() {
+                return domains
+                    .iter()
+                    .any(|d| d.used_cores().saturating_add(cpus) <= d.assigned_cores);
+            }
+        }
+        true
+    }
+
+    pub fn num_domains(&self) -> usize {
+        self.fineloadbalancing
+            .as_ref()
+            .map(|flb| flb.system_domains.immutable_clone().len().max(1))
+            .unwrap_or(1)
+    }
+
+    /// Atomically acquire `reg.cpus` from the first domain in `ranked_domains` that currently
+    /// has free capacity (`used_cores + reg.cpus <= assigned_cores`), spilling down
+    /// `[d_(1), ..., d_(D)]` only when higher-ranked domains are full, and return
+    /// `(actual_domain, DomainCpuPermit)`. Never invokes `power_of_two`.
     pub async fn acquire_cores(
         &self,
         reg: &Arc<RegisteredFunction>,
         tid: &TransactionId,
-    ) -> Result<Option<DomainCpuPermit>, tokio::sync::AcquireError> {
-        self.acquire_cores_with_preferred(reg, tid, None).await
-    }
-
-    /// Blocks until an owned permit can be acquired, honoring an optional queue-selected domain.
-    pub async fn acquire_cores_with_preferred(
-        &self,
-        reg: &Arc<RegisteredFunction>,
-        tid: &TransactionId,
-        preferred_domain: Option<SchedGroupID>,
-    ) -> Result<Option<DomainCpuPermit>, tokio::sync::AcquireError> {
+        ranked_domains: &[usize],
+    ) -> Result<Option<(usize, DomainCpuPermit)>, tokio::sync::AcquireError> {
         debug!(cpu_sem =? self.concurrency_semaphore, "CPUResourceMananger");
-        if let Some(sem) = &self.concurrency_semaphore {
-            if self
-                .assign_domain_to_function_request_with_preferred(tid, reg.clone(), preferred_domain)
-                .is_ok()
-            {
-                return match sem.clone().acquire_many_owned(reg.cpus).await {
-                    Ok(p) => {
-                        let release_domain_callback = self.build_release_domain_callback(tid, reg.clone());
-                        Ok(Some(DomainCpuPermit::new(p, release_domain_callback)))
-                    },
-                    Err(e) => {
-                        self.release_domain_for_request(tid, reg.clone());
-                        Err(e)
-                    },
-                };
+        let sem_permit = if let Some(sem) = &self.concurrency_semaphore {
+            if ranked_domains.is_empty() {
+                // Standard non-`posted_price` path (`fcfs`, `least_loaded`, `power_of_two`, etc.):
+                // await the semaphore directly so completions wake the next dispatch immediately
+                // without falling back to `queue_sleep_ms` polling.
+                Some(sem.clone().acquire_many_owned(reg.cpus).await?)
             } else {
-                self.await_domain_release_or_timeout().await;
+                match sem.clone().try_acquire_many_owned(reg.cpus) {
+                    Ok(p) => Some(p),
+                    Err(tokio::sync::TryAcquireError::NoPermits) => return Ok(None),
+                    Err(tokio::sync::TryAcquireError::Closed) => {
+                        let p = sem.clone().acquire_many_owned(reg.cpus).await?;
+                        Some(p)
+                    },
+                }
             }
+        } else if self.fineloadbalancing.is_none() {
+            return Ok(None);
+        } else {
+            None
+        };
+
+        if let Some(actual_domain) = self.try_assign_domain_from_ranked(tid, reg, ranked_domains) {
+            let release_domain_callback = self.build_release_domain_callback(tid, reg.clone());
+            Ok(Some((
+                actual_domain,
+                DomainCpuPermit::new(actual_domain, sem_permit, release_domain_callback),
+            )))
+        } else {
+            drop(sem_permit);
+            Ok(None)
         }
-        Ok(None)
     }
 
     pub fn available_cores(&self) -> usize {
@@ -419,108 +446,61 @@ impl CpuResourceTracker {
         );
     }
 
-    pub fn assign_domain_to_function_request(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) -> Result<()> {
-        self.assign_domain_to_function_request_with_preferred(tid, reg, None)
-    }
-
-    pub fn assign_domain_to_function_request_with_preferred(
+    fn try_assign_domain_from_ranked(
         &self,
         tid: &TransactionId,
-        reg: Arc<RegisteredFunction>,
-        preferred_domain: Option<SchedGroupID>,
-    ) -> Result<()> {
+        reg: &Arc<RegisteredFunction>,
+        ranked_domains: &[usize],
+    ) -> Option<usize> {
         let fqdn = reg.fqdn.as_str();
         if let Some(fineloadbalancing) = self.fineloadbalancing.as_ref() {
             let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
             let stats = fineloadbalancing.stats.clone();
-            match stats.tid_map.get(tid) {
-                Some(_entry) => return Ok(()),
-                _ => {},
-            };
-
-            let lbpolicy = &fineloadbalancing.lbpolicy;
-            let domains = fineloadbalancing.system_domains.immutable_clone();
-            let mut domain_id = None;
-            if let Some(pref_id) = preferred_domain {
-                if let Some(domain) = domains.get(pref_id as usize) {
-                    domain.acquire_cores_oc(reg.cpus);
-                    domain_id = Some(pref_id);
-                }
+            if let Some(existing) = stats.tid_map.get(tid) {
+                return Some(*existing as usize);
             }
-            if domain_id.is_none() {
-                domain_id = lbpolicy.assign_domain_to_function_request(tid, reg.clone());
-                if let Some(selected_id) = domain_id {
-                    let config = &fineloadbalancing.config;
-                    let threshold = config.burst_threshold;
-                    if config.burst_mode == crate::worker_api::worker_config::FineSchedBurstMode::Spillover
-                        && threshold.is_finite()
-                        && (0.0..=1.0).contains(&threshold)
-                    {
-                        let selected_load = fineloadbalancing
-                            .domain_pelt_like_utilization_percent(selected_id)
-                            .ok()
-                            .flatten();
-                        if selected_load.is_some_and(|load| load / 100.0 >= threshold) {
-                            let mut candidates = domains
-                                .iter()
-                                .filter(|domain| domain.schedgroup_id() != selected_id)
-                                .filter_map(|domain| {
-                                    fineloadbalancing
-                                        .domain_pelt_like_utilization_percent(domain.schedgroup_id())
-                                        .ok()
-                                        .flatten()
-                                        .map(|load| (domain.schedgroup_id(), load))
-                                })
-                                .collect::<Vec<_>>();
-                            // Generic spillover checks only the base policy's selected domain;
-                            // it does not inspect all candidates (for example, Po2's other
-                            // home domain). It can therefore override policy affinity even
-                            // when that policy had another acceptable candidate.
-                            // TODO: Use cpu_workload_phase() and queued FQDN concentration
-                            // to predict burst phases before a selected domain saturates.
-                            let probes = config.burst_probes.max(1).min(candidates.len());
-                            let mut rng = rand::rng();
-                            for index in 0..probes {
-                                let swap_index = rng.random_range(index..candidates.len());
-                                candidates.swap(index, swap_index);
-                            }
-                            let alternate = candidates[..probes]
-                                .iter()
-                                .min_by(|left, right| left.1.total_cmp(&right.1))
-                                .map(|candidate| candidate.0);
-                            if let Some(alternate_id) = alternate {
-                                if lbpolicy.move_reservation(&reg, selected_id, alternate_id) {
-                                    debug!(tid=%tid, fqdn=%fqdn, selected_domain=%selected_id,
-                                        selected_pelt_utilization=?selected_load,
-                                        alternate_domain=%alternate_id, threshold,
-                                        "[finesched] generic burst spillover rerouted invocation");
-                                    domain_id = Some(alternate_id);
-                                }
-                            }
+
+            let domains = fineloadbalancing.system_domains.immutable_clone();
+            if domains.is_empty() {
+                return Some(0);
+            }
+
+            let selected_domain: Option<SchedGroupID> = if ranked_domains.is_empty() {
+                fineloadbalancing
+                    .lbpolicy
+                    .assign_domain_to_function_request(tid, reg.clone())
+            } else {
+                let mut chosen = None;
+                for &cand in ranked_domains {
+                    if let Some(domain) = domains.get(cand) {
+                        if domain.try_acquire_cores(reg.cpus) {
+                            chosen = Some(domain.schedgroup_id());
+                            break;
                         }
                     }
                 }
-            }
-            if let Some(domain_id) = domain_id {
-                // Capture stats for the domain assignment.
-                debug!( tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] inserting to tid map");
+                chosen
+            };
+
+            if let Some(domain_id) = selected_domain {
+                debug!(tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] inserting to tid map");
                 stats.tid_map.insert(tid.clone(), domain_id);
 
                 let scheduled_invocations = &stats.domain_map.get_or_create(&domain_id).scheduled_invocations;
                 scheduled_invocations.fetch_add(1, Ordering::Relaxed);
 
-                debug!( tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] domain assigned to function request");
+                debug!(tid=%tid, fqdn=%fqdn, domain_id=%domain_id, "[finesched] domain assigned to function request");
                 drop(_lock);
                 fineloadbalancing.maybe_log_core_metrics(tid, fqdn, domain_id);
-                return Ok(());
+                return Some(domain_id as usize);
             }
-            debug!( tid=%tid, fqdn=%fqdn, domain_id=%"None", "[finesched] domain not assigned to function request");
-        } else {
-            debug!( tid=%tid, fqdn=%fqdn, domain_id=%"no_finesched", "[finesched] domain not assigned to function request");
-            return Ok(());
-        }
 
-        bail!("no domain assigned")
+            debug!(tid=%tid, fqdn=%fqdn, domain_id=%"None", "[finesched] all candidate domains at capacity");
+            None
+        } else {
+            debug!(tid=%tid, fqdn=%fqdn, domain_id=%"no_finesched", "[finesched] domain not assigned to function request");
+            Some(0)
+        }
     }
 
     pub fn cgroup_assigned_to_function(
@@ -528,14 +508,29 @@ impl CpuResourceTracker {
         cgroup_id: &str,
         tid: &TransactionId,
         reg: Arc<RegisteredFunction>,
+        actual_domain: Option<usize>,
+        s_i_ms: Option<f64>,
+        w_0: Option<f64>,
     ) -> Result<()> {
         let fqdn = reg.fqdn.as_str();
         if let Some(fineloadbalancing) = self.fineloadbalancing.as_ref() {
             let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
             let stats = fineloadbalancing.stats.clone();
-            let domain_id = match stats.tid_map.get(tid) {
-                Some(entry) => *entry,
-                None => {
+            let domain_id = match (stats.tid_map.get(tid).map(|e| *e), actual_domain) {
+                (Some(mapped), Some(actual)) => {
+                    let actual_gid = actual as SchedGroupID;
+                    if mapped != actual_gid {
+                        stats.tid_map.insert(tid.clone(), actual_gid);
+                    }
+                    actual_gid
+                },
+                (Some(mapped), None) => mapped,
+                (None, Some(actual)) => {
+                    let actual_gid = actual as SchedGroupID;
+                    stats.tid_map.insert(tid.clone(), actual_gid);
+                    actual_gid
+                },
+                (None, None) => {
                     error!(tid=%tid, "[finesched] no domain found for tid in tid_stats map");
                     bail!("no fine-scheduling domain found for transaction '{}'", tid);
                 },
@@ -546,31 +541,50 @@ impl CpuResourceTracker {
             // task. Use a fresh generation so SRPT can reset CPU runtime at
             // each invocation boundary.
             let invocation_id = NEXT_FINE_SCHED_INVOCATION_ID.fetch_add(1, Ordering::Relaxed);
-            let warm_dur = fineloadbalancing.cmap.get(fqdn, Chars::CpuWarmTime, Value::Avg);
-            let dur = if warm_dur.is_finite() && warm_dur > 0.0 {
-                warm_dur
+            let (dur_ms, dur_ns) = if let Some(ms) = s_i_ms.filter(|v| v.is_finite() && *v > 0.0) {
+                ((ms.round() as u64).max(1), (ms * 1_000_000.0) as u64)
             } else {
-                fineloadbalancing.cmap.get(fqdn, Chars::CpuExecTime, Value::Avg)
+                let warm_dur = fineloadbalancing.cmap.get(fqdn, Chars::CpuWarmTime, Value::Avg);
+                let exec_dur = fineloadbalancing.cmap.get(fqdn, Chars::CpuExecTime, Value::Avg);
+                let dur = if warm_dur.is_finite() && warm_dur > 0.0 {
+                    warm_dur
+                } else if exec_dur.is_finite() && exec_dur > 0.0 {
+                    exec_dur
+                } else {
+                    0.010
+                };
+                let d_ms = ((dur * 1000.0).round() as u64).max(1);
+                (d_ms, (dur * 1_000_000_000.0) as u64)
             };
-            let dur_ms = (dur * 1000.0) as u64;
-            let dur_ns = (dur.max(0.0) * 1_000_000_000.0) as u64;
 
             // Keep the container-level EEVDF estimate in wallclock units.
             // FineSched learns CPU/wall parallelism in BPF, so the worker must
             // not convert this estimate to aggregate core time.
-            if let Err(err) = iluvatar_finesched::update_cgroup_wall_estimate(cgroup_id, dur_ns, invocation_id) {
-                warn!(tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, error=%err,
-                      "[finesched] unable to update container wallclock estimate");
+            if fineloadbalancing.config.testing == 0 && !is_simulation() {
+                if let Err(err) = iluvatar_finesched::update_cgroup_wall_estimate(cgroup_id, dur_ns, invocation_id) {
+                    warn!(tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, error=%err,
+                          "[finesched] unable to update container wallclock estimate");
+                }
             }
 
-            // TODO: lookup arrival time and push
             let sched_domains = &fineloadbalancing.preallocated_domains;
             sched_domains.update_cgroup_chrs(domain_id, invocation_id, dur_ms, 0, cgroup_id);
-            if fineloadbalancing.config.sched_ext_migration == SchedExtMigrationMethod::Syscall {
+            if fineloadbalancing.config.testing == 0
+                && fineloadbalancing.config.sched_ext_migration == SchedExtMigrationMethod::Syscall
+            {
                 self.set_cgroup_sched_ext(cgroup_id)?;
             }
 
-            debug!( tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, invocation_id=invocation_id, domain_id=%domain_id, "[finesched] domain assigned to function cgroup");
+            debug!(
+                tid=%tid,
+                fqdn=%fqdn,
+                cgroup_id=%cgroup_id,
+                invocation_id=invocation_id,
+                domain_id=%domain_id,
+                s_i_ms=?s_i_ms,
+                w_0=?w_0,
+                "[finesched] domain assigned to function cgroup"
+            );
         }
         Ok(())
     }
@@ -579,24 +593,28 @@ impl CpuResourceTracker {
         let fqdn = reg.fqdn.as_str();
         if let Some(fineloadbalancing) = &self.fineloadbalancing {
             let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
-            let lbpolicy = &fineloadbalancing.lbpolicy;
             let stats = fineloadbalancing.stats.clone();
             let domain_id = match stats.tid_map.get(tid) {
                 Some(entry) => *entry,
                 None => {
-                    error!(tid=%tid, "[finesched] no domain found for tid in tid_stats map");
                     return;
                 },
             };
 
-            lbpolicy.invoke_is_complete(cgroup_id, tid, reg.clone());
+            if let Some(domain) = fineloadbalancing
+                .system_domains
+                .immutable_clone()
+                .get(domain_id as usize)
+            {
+                domain.return_cpus_and_release(reg.cpus);
+            }
             stats.tid_map.remove(tid);
 
             let scheduled_invocations = &stats.domain_map.get_or_create(&domain_id).scheduled_invocations;
             scheduled_invocations.fetch_sub(1, Ordering::Relaxed);
 
             fineloadbalancing.domain_release_signal.notify_waiters();
-            debug!( tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, domain_id=%domain_id, "[finesched] domain released for function cgroup");
+            debug!(tid=%tid, fqdn=%fqdn, cgroup_id=%cgroup_id, domain_id=%domain_id, "[finesched] domain released for function cgroup");
         }
     }
 
@@ -614,7 +632,6 @@ impl CpuResourceTracker {
             let callback = move || {
                 let fqdn = reg.fqdn.as_str();
                 let _lock = fineloadbalancing.domain_operation_lock.lock().unwrap();
-                let lbpolicy = &fineloadbalancing.lbpolicy;
                 let stats = fineloadbalancing.stats.clone();
                 let domain_id = match stats.tid_map.get(&tid) {
                     Some(entry) => *entry,
@@ -624,14 +641,20 @@ impl CpuResourceTracker {
                     None => return,
                 };
 
-                lbpolicy.release_domain(&tid, reg.clone());
+                if let Some(domain) = fineloadbalancing
+                    .system_domains
+                    .immutable_clone()
+                    .get(domain_id as usize)
+                {
+                    domain.return_cpus_and_release(reg.cpus);
+                }
                 stats.tid_map.remove(&tid);
 
                 let scheduled_invocations = &stats.domain_map.get_or_create(&domain_id).scheduled_invocations;
                 scheduled_invocations.fetch_sub(1, Ordering::Relaxed);
 
                 domain_release_signal.notify_waiters();
-                debug!( tid=%tid, fqdn=%fqdn, domain_id=%domain_id, pending_invocations=%scheduled_invocations.load(Ordering::Relaxed), "[finesched] domain released for function request");
+                debug!(tid=%tid, fqdn=%fqdn, domain_id=%domain_id, pending_invocations=%scheduled_invocations.load(Ordering::Relaxed), "[finesched] domain released for function request");
             };
             Arc::new(callback)
         } else {
@@ -639,6 +662,7 @@ impl CpuResourceTracker {
         }
     }
 
+    #[allow(dead_code)]
     async fn await_domain_release_or_timeout(&self) {
         if let Some(fineloadbalancing) = &self.fineloadbalancing {
             let fineloadbalancing = fineloadbalancing.clone();

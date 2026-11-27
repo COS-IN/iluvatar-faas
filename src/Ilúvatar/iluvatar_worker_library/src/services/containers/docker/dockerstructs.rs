@@ -65,6 +65,7 @@ pub struct DockerContainer {
     dev_mem_usage: RwLock<(MemSizeMb, bool)>,
     mem_usage: RwLock<MemSizeMb>,
     drop_on_remove: Mutex<Vec<DroppableToken>>,
+    last_domain: std::sync::atomic::AtomicI32,
 }
 
 impl DockerContainer {
@@ -102,6 +103,7 @@ impl DockerContainer {
             state: Mutex::new(state),
             device: RwLock::new(device),
             drop_on_remove: Mutex::new(vec![]),
+            last_domain: std::sync::atomic::AtomicI32::new(-1),
         };
         Ok(r)
     }
@@ -238,6 +240,14 @@ impl ContainerT for DockerContainer {
     }
     fn cpu_utilization(&self) -> Utilization {
         *self.last_invoke_cpu_utilization.lock()
+    }
+    fn last_domain(&self) -> Option<usize> {
+        let raw = self.last_domain.load(std::sync::atomic::Ordering::Relaxed);
+        (raw >= 0).then_some(raw as usize)
+    }
+    fn set_last_domain(&self, domain: Option<usize>) {
+        let raw = domain.and_then(|d| i32::try_from(d).ok()).unwrap_or(-1);
+        self.last_domain.store(raw, std::sync::atomic::Ordering::Relaxed);
     }
     fn device_resource(&self) -> ProtectedGpuRef<'_> {
         self.device.read()

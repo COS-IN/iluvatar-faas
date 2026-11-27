@@ -810,8 +810,8 @@ impl MQFQ {
         tid: &TransactionId,
     ) -> Option<DroppableToken> {
         let mut ret: Vec<DroppableToken> = vec![];
-        match self.cpu.acquire_cores(reg, tid).await {
-            Ok(Some(c)) => ret.push(Box::new(c)),
+        match self.cpu.acquire_cores(reg, tid, &[]).await {
+            Ok(Some((_domain, c))) => ret.push(Box::new(c)),
             Ok(_) => (),
             Err(_) => {
                 error!(

@@ -1807,6 +1807,54 @@ static __always_inline bool container_enqueue_vtime(struct task_struct *p,
     return true;
 }
 
+// Container-level SRPT vtime strictly for domains configured with `prio = "srpt"`
+// (`sched_chrs->prio == QEnqPrioSRPT`). Never called when `prio != QEnqPrioSRPT`.
+static __always_inline bool container_srpt_vtime(struct task_struct *p,
+                                                 CgroupChrs_t *cgrp_chrs,
+                                                 struct task_context *tctx,
+                                                 u64 *vtime, u64 *timeslice) {
+    if (!tctx || !vtime || !timeslice) {
+        return false;
+    }
+    u64 fallback_ns = expected_task_runtime_ns(cgrp_chrs);
+    if (fallback_ns == 0) {
+        fallback_ns = 250ULL * NSEC_PER_MSEC;
+    }
+    struct cgroup_vtime_context *ctx = get_cgroup_vtime_context(p, false);
+    if (!ctx) {
+        if (cgrp_chrs && tctx->invocation_id != cgrp_chrs->invoke_ts) {
+            tctx->runtime_ns = 0;
+            tctx->invocation_id = cgrp_chrs->invoke_ts;
+        }
+        u64 used = tctx->runtime_ns;
+        u64 rem = fallback_ns > used ? fallback_ns - used : used;
+        *vtime = rem;
+        *timeslice = rem <= SHORT_THRESH_NS ? SCX_SLICE_INF : DEFAULT_SLICE_NS;
+        return true;
+    }
+
+    bpf_spin_lock(&ctx->lock);
+    bool fresh_inv = (ctx->pending_invocation_id != 0 &&
+                      ctx->pending_invocation_id != ctx->invocation_id);
+    u64 expected_wall_ns = ctx->ewma_wall_ns ? ctx->ewma_wall_ns : fallback_ns;
+    u64 used_cpu_ns = fresh_inv ? 0 : ctx->cpu_used_ns;
+    u32 par_q8 = MAX(256U, MIN(ctx->ema_par_q8, MAX_PAR_Q8));
+    bpf_spin_unlock(&ctx->lock);
+
+    u64 expected_cpu_ns = (expected_wall_ns * (u64)par_q8) >> 8;
+    if (expected_cpu_ns == 0) {
+        expected_cpu_ns = fallback_ns;
+    }
+    u64 rem_cpu_ns = expected_cpu_ns > used_cpu_ns
+                         ? expected_cpu_ns - used_cpu_ns
+                         : used_cpu_ns;
+    *vtime = rem_cpu_ns;
+    *timeslice = (rem_cpu_ns <= SHORT_THRESH_NS && par_q8 <= 256)
+                     ? SCX_SLICE_INF
+                     : DEFAULT_SLICE_NS;
+    return true;
+}
+
 static __always_inline u64 task_enqueue_vtime(CgroupChrs_t *cgrp_chrs,
                                                SchedGroupChrs_t *sched_chrs,
                                                struct task_context *tctx) {
@@ -1876,7 +1924,13 @@ static __noinline bool enqueue_to_assigned_domain_queue(struct task_struct *p,
         u64 vtime = 0;
         u64 container_slice = timeslice;
         u32 dom_idx = (u32)cgrp_chrs->gid;
-        if (container_enqueue_vtime(p, tctx, dom_idx, &vtime, &container_slice)) {
+        if (sched_chrs->prio == QEnqPrioSRPT) {
+            if (container_srpt_vtime(p, cgrp_chrs, tctx, &vtime, &container_slice)) {
+                timeslice = container_slice;
+            } else {
+                vtime = task_enqueue_vtime(cgrp_chrs, sched_chrs, tctx);
+            }
+        } else if (container_enqueue_vtime(p, tctx, dom_idx, &vtime, &container_slice)) {
             timeslice = container_slice;
         } else {
             // Fallback clock (SRPT remaining-ns or task vtime). Do not feed it

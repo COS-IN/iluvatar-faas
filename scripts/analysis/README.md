@@ -236,32 +236,46 @@ symmetric log scale so large cold-start tolls/credits do not flatten the
 near-zero warm tolls. Sparse or absent samples are shown as such rather than
 filled from another domain or time.
 
-It also writes `unit_congestion_price_vs_pelt.png` from **all** evaluated
-candidate domains, including candidates that were not selected. In
+It writes two candidate-domain PELT figures from all evaluated candidates,
+including candidates that were not selected. In
 `price_candidates.csv`, the analyzer adds `domain_id` (from
 `candidate_domain`), `is_selected` (from `selected`), `queue_toll` (from
-`queue_backlog_toll`), `runtime_est_ms`, candidate-domain PELT fields, and
-`unit_congestion_price`:
+`queue_backlog_toll`), `runtime_est_ms`, candidate-domain PELT fields,
+`estimated_benefit`, `unit_congestion_price`, and the dimensionless
+`toll_to_benefit` ratio:
 
 ```text
+toll_to_benefit = (warm_toll + queue_toll) / estimated_benefit
 unit_congestion_price = (warm_toll + queue_toll) / runtime_est_ms
 ```
 
-Cold tolls and creation credits are excluded. Rows with nonpositive/missing
-runtime or without matching PELT telemetry have no unit-price value. Candidate
-events do not log per-domain PELT directly, so telemetry is nearest-joined by
-domain and event time within 50 ms (the equivalent of a nearest-direction
-`merge_asof` with a 50,000,000 ns tolerance). The utilization x-value is the
-logged `domain_pelt_like_utilization_percent / 100`. Runnable load comes from
-the sampled `runnable_load` field and is normalized by configured cores per
-domain, allowing values above 1 when runnable work exceeds domain capacity.
+Cold tolls and creation credits are excluded. The logged candidate `benefit`
+(or older `estimated_benefit`) is used directly; if absent, the analyzer uses
+`priority_weight * runtime_est_ms`. Rows with missing PELT or nonpositive or
+missing estimated benefit have no ratio. Candidate events do not log
+per-domain PELT directly, so telemetry is nearest-joined by domain and event
+time within 50 ms (the equivalent of a nearest-direction `merge_asof` with a
+50,000,000 ns tolerance). The utilization x-value is the logged
+`domain_pelt_like_utilization_percent / 100`.
 
-The plot has utilization and normalized-runnable-load panels. Selected
-candidates are highlighted; rejected candidate evaluations are faint. Both
-panels include a 24-bin median curve and 25th–75th percentile band, Spearman
-correlation and matched candidate count, plus the saved run's `rho_knee`
-reference. The y-axis stays linear for a narrow positive range and switches to
-symlog when the positive unit-price range exceeds two orders of magnitude.
+`toll_to_benefit_vs_pelt.png` is a single-panel plot of candidate-domain PELT
+utilization versus `toll_to_benefit`. Rejected candidates are faint and
+selected candidates are highlighted. It overlays a 24-bin median and
+25th–75th percentile band, a vertical `rho_knee` marker, and a horizontal
+break-even line at 1.0. The y-axis is linear and clipped at
+`max(1.5, p99 * 1.1)`; the title reports Spearman correlation and the plotted
+candidate count.
+
+`unit_congestion_price_vs_pelt.png` plots `(warm_toll + queue_toll) /
+runtime_est_ms` against candidate-domain normalized PELT utilization and
+normalized runnable load in two side-by-side panels. The runtime estimate uses
+the logged `estimated_runtime_ms`, falling back to trace metadata
+`warm_dur_ms`. Rejected candidates are faint and selected candidates are
+highlighted; each panel overlays a binned median and 25th–75th percentile
+band. The utilization panel marks `rho_knee`. The y-axis switches to symlog
+when positive prices span more than two orders of magnitude, with `linthresh`
+set from the smallest positive plotted price. Each panel reports its
+Spearman correlation and candidate count.
 
 The selected invocation CSV also includes normalized and scheduling context:
 

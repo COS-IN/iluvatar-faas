@@ -230,6 +230,98 @@ impl LoadBalancingPolicyTrait for PowerOfTwo {
     }
 }
 
+/// Select the least-loaded domain across all configured domains using PELT-like
+/// utilization (falling back to normalized `used_cores / assigned_cores` when
+/// PELT metrics are unavailable), breaking ties from a random starting offset.
+pub struct LeastLoaded {
+    fineloadbalancing: FineLoadBalancingWeak,
+}
+
+impl LeastLoaded {
+    pub fn new(fineloadbalancing: FineLoadBalancingWeak) -> Self {
+        Self { fineloadbalancing }
+    }
+}
+
+impl LoadBalancingPolicyTrait for LeastLoaded {
+    fn assign_domain_to_function_request(
+        &self,
+        tid: &TransactionId,
+        reg: Arc<RegisteredFunction>,
+    ) -> Option<SchedGroupID> {
+        let fineloadbalancing = self.fineloadbalancing.upgrade()?;
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        if domains.is_empty() {
+            return None;
+        }
+        let n = domains.len();
+        let start = rand::rng().random_range(0..n);
+        let mut best_idx = start;
+        let mut best_pelt: Option<f64> = None;
+        let mut best_used_ratio = f64::INFINITY;
+        let mut best_key: Option<(bool, ordered_float::OrderedFloat<f64>, ordered_float::OrderedFloat<f64>)> = None;
+
+        for offset in 0..n {
+            let idx = (start + offset) % n;
+            let domain = &domains[idx];
+            let used = domain.used_cores();
+            let cap = domain.assigned_cores.max(1);
+            let has_slot = used.saturating_add(reg.cpus) <= cap;
+            let used_ratio = used as f64 / (cap as f64);
+            let pelt = fineloadbalancing
+                .domain_pelt_like_utilization_percent(domain.schedgroup_id())
+                .ok()
+                .flatten()
+                .filter(|v| v.is_finite());
+            let key = (
+                !has_slot,
+                ordered_float::OrderedFloat(used_ratio),
+                ordered_float::OrderedFloat(pelt.unwrap_or(f64::INFINITY)),
+            );
+            if best_key.map_or(true, |bk| key < bk) {
+                best_idx = idx;
+                best_pelt = pelt;
+                best_used_ratio = used_ratio;
+                best_key = Some(key);
+            }
+        }
+
+        let selected = &domains[best_idx];
+        selected.acquire_cores_oc(reg.cpus);
+        debug!(
+            tid=%tid,
+            fqdn=%reg.fqdn,
+            selected_domain=%selected.schedgroup_id(),
+            selected_pelt_utilization=?best_pelt,
+            selected_used_ratio=best_used_ratio,
+            lbpolicy=%"least_loaded",
+            "[finesched] selected least-loaded domain"
+        );
+        Some(selected.schedgroup_id())
+    }
+
+    fn invoke_is_complete(&self, _cgroup_id: &str, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
+    }
+
+    fn release_domain(&self, tid: &TransactionId, reg: Arc<RegisteredFunction>) {
+        return_power_of_two_domain(&self.fineloadbalancing, tid, reg);
+    }
+
+    fn move_reservation(&self, reg: &RegisteredFunction, from: SchedGroupID, to: SchedGroupID) -> bool {
+        let Some(fineloadbalancing) = self.fineloadbalancing.upgrade() else {
+            return false;
+        };
+        let domains = fineloadbalancing.system_domains.immutable_clone();
+        let (Some(source), Some(target)) = (domains.get(from as usize), domains.get(to as usize)) else {
+            return false;
+        };
+        source.return_cpus_and_release(reg.cpus);
+        target.acquire_cores_oc(reg.cpus);
+        true
+    }
+}
+
 /// Stable single-domain placement using the first candidate hash from
 /// `power_of_two_det`, without comparing a second domain.
 pub struct Hash {

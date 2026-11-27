@@ -40,6 +40,7 @@ pub struct SimulatorContainer {
     drop_on_remove: Mutex<Vec<DroppableToken>>,
     history_data: Option<Vec<f64>>,
     time_formatter: ContainerTimeFormatter,
+    last_domain: std::sync::atomic::AtomicI32,
 }
 impl SimulatorContainer {
     pub fn new(
@@ -71,6 +72,7 @@ impl SimulatorContainer {
             dev_mem_usage: RwLock::new((0, true)),
             drop_on_remove: Mutex::new(vec![]),
             time_formatter: formatter,
+            last_domain: std::sync::atomic::AtomicI32::new(-1),
         })
     }
 }
@@ -247,6 +249,14 @@ impl ContainerT for SimulatorContainer {
     }
     fn compute_type(&self) -> Compute {
         self.compute
+    }
+    fn last_domain(&self) -> Option<usize> {
+        let raw = self.last_domain.load(std::sync::atomic::Ordering::Relaxed);
+        (raw >= 0).then_some(raw as usize)
+    }
+    fn set_last_domain(&self, domain: Option<usize>) {
+        let raw = domain.and_then(|d| i32::try_from(d).ok()).unwrap_or(-1);
+        self.last_domain.store(raw, std::sync::atomic::Ordering::Relaxed);
     }
     fn device_resource(&self) -> ProtectedGpuRef<'_> {
         self.device.read()

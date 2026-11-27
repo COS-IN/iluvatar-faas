@@ -49,6 +49,12 @@ pub trait ContainerT: ToAny + Send + Sync {
     fn cpu_utilization(&self) -> Utilization {
         0
     }
+    /// App-level FineSched domain on which this container most recently executed.
+    fn last_domain(&self) -> Option<usize> {
+        None
+    }
+    /// Update the app-level FineSched domain on which this container executed.
+    fn set_last_domain(&self, _domain: Option<usize>) {}
     /// Returned with [Some(&GPU)] if the container has extra resources
     fn device_resource(&self) -> ProtectedGpuRef<'_>;
     /// Update amount of device memory the container uses.
